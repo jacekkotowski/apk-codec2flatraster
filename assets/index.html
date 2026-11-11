@@ -54,6 +54,7 @@ select:disabled{opacity:.5}
    <label>Smoothing<select id="smooth"><option value="0">Off</option><option value="1">Light</option><option value="2">Medium</option><option value="3">Strong</option><option value="5">Very strong</option></select></label>
    <label>New colours<select id="pal"><option value="0">Only when needed</option><option value="5">Every 5 s</option><option value="10">Every 10 s</option><option value="30">Every 30 s</option><option value="60">Every minute</option></select></label>
    <label>Clean-up<select id="clean"><option value="1">Light</option><option value="2">Medium</option><option value="3">Strong</option></select></label>
+   <label>Colour fit<select id="track"><option value="0">Locked</option><option value="16">Every picture, colours change rarely</option><option value="8">Every picture, colours change sometimes</option><option value="4">Every picture, colours change readily</option></select></label>
    <label>Borders<select id="round"><option value="0">As they fall</option><option value="1">Rounded</option><option value="2">Very rounded</option></select></label>
    <label>Exposure and colour<select id="lock"><option value="0">Follow the light</option><option value="1">Lock while recording</option></select></label>
    <label>Faces<select id="focus"><option value="0">No special treatment</option><option value="1">Rest in half the colours</option><option value="2">Rest in a quarter of the colours</option></select></label>
@@ -73,8 +74,8 @@ select:disabled{opacity:.5}
 // Outside the app (a desktop browser) a stand-in bridge keeps the page usable for layout checks.
 var A = window.Android || {status:function(){return '{"camera":true,"avail":"0,1"}'},list:function(){return '[]'},voiceModes:function(){return '["3200","2400","1600","1400","1300","1200","700C","450"]'},config:function(){},newPalette:function(){},startRec:function(){},stopRec:function(){},play:function(){},stopPlay:function(){},mp4:function(){},remove:function(){},rename:function(){return true},share:function(){}};
 var $ = function(id){return document.getElementById(id)};
-var ids = ['fps','size','colors','smooth','pal','clean','round','lock','focus','ignore','still','kbps','key','skip','codec','voice','front'];
-var defaults = {fps:'2',size:'2',colors:'8',smooth:'2',pal:'0',clean:'1',round:'1',lock:'0',focus:'0',ignore:'0',still:'0',kbps:'5',key:'10',skip:'0',codec:'-1',voice:'1200',front:'0'};
+var ids = ['fps','size','colors','smooth','pal','track','clean','round','lock','focus','ignore','still','kbps','key','skip','codec','voice','front'];
+var defaults = {fps:'2',size:'2',colors:'8',smooth:'2',pal:'0',track:'0',clean:'1',round:'1',lock:'0',focus:'0',ignore:'0',still:'0',kbps:'5',key:'10',skip:'0',codec:'-1',voice:'1200',front:'0'};
 var rec = false, listKey = '', msgUntil = 0;
 
 JSON.parse(A.voiceModes()).forEach(function(m){var o=document.createElement('option');o.textContent=m;$('voice').appendChild(o)});
@@ -84,7 +85,7 @@ ids.forEach(function(id){ $(id).value = saved[id] != null ? saved[id] : defaults
 function push(){
   var s = {}; ids.forEach(function(id){ s[id] = $(id).value });
   try { localStorage.setItem('set', JSON.stringify(s)) } catch (e) {}
-  A.config(JSON.stringify({fps:+s.fps,size:+s.size,colors:+s.colors,smooth:+s.smooth,pal:+s.pal,clean:+s.clean,round:+s.round,lock:s.lock==='1',focus:+s.focus,ignore:+s.ignore,still:+s.still,kbps:+s.kbps,key:+s.key,skip:s.skip==='1',codec:+s.codec,voice:s.voice,front:s.front==='1'}));
+  A.config(JSON.stringify({fps:+s.fps,size:+s.size,colors:+s.colors,smooth:+s.smooth,pal:+s.pal,track:+s.track,clean:+s.clean,round:+s.round,lock:s.lock==='1',focus:+s.focus,ignore:+s.ignore,still:+s.still,kbps:+s.kbps,key:+s.key,skip:s.skip==='1',codec:+s.codec,voice:s.voice,front:s.front==='1'}));
 }
 function clock(ms){ var s=Math.floor(ms/1000), m=Math.floor(s/60); return (m<10?'0':'')+m+':'+(s%60<10?'0':'')+s%60 }
 function size(b){ return b<1024 ? b+' B' : b<1048576 ? (b/1024).toFixed(1)+' kB' : (b/1048576).toFixed(2)+' MB' }

@@ -33,6 +33,10 @@ void flat_mark_sent(Flat *f);
    boxes that applies to the whole picture. Call before loading a frame. */
 void flat_set_focus(Flat *f, const int *rects, int count, int coarse);
 
+/* Colour tracking: 0 keeps the palette locked between rebuilds. Above 0 the colours are refitted to every picture
+   (borders fall as after a new palette), and a shown colour changes only once the fit is more than `threshold` away. */
+void flat_set_track(Flat *f, int threshold);
+
 /* Border rounding: 0 off, 1 or 2 passes of a 5x5 most-common-colour filter after everything else. */
 void flat_set_round(Flat *f, int passes);
 

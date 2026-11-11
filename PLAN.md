@@ -14,6 +14,7 @@ Last updated: 2026-11-11
 | Faces in full colours, rest in fewer colours (camera's own face detection) | Filter tested on a computer; face boxes from the camera not tested anywhere |
 | Smooth borders: hold rule based on the border, not on each pixel's past (0.7) | Filter tested on a computer, waiting for phone test |
 | Border rounding (5x5 most-common-colour filter), on by default from 0.8 | Filter tested on a computer, waiting for phone test |
+| Colour fit every picture, shown colours follow past a threshold (0.9, off by default) | Filter tested on a computer; did not beat locked colours there. Needs the phone to judge |
 | Exposure and white balance lock while recording | Built, not tested anywhere |
 | Sending over a narrow link | Not started |
 
@@ -29,6 +30,7 @@ Last updated: 2026-11-11
 
 - Fraying borders (seen on the phone: borders ragged until the next new palette). Cause: up to 0.6 each pixel kept its colour until it differed enough from its own past, so pixels along a border switched one by one as exposure drifted. Still scene with drifting exposure and white balance: border length grew to 1.72x of the first picture, 535 pixels changed per picture, 1.45 kbps. With the 0.7 rule (switch only when clearly past the border between the two colours): 1.00x, 66 pixels, 1.39 kbps.
 - Ragged borders behind moving things (seen on the phone). Soft-edged moving scene with noise, border length against the ideal (noise-free, every pixel decided fresh): 0.6 rule 1.78x and 3.34 kbps; 0.7 rule 1.22x and 3.17 kbps; 0.7 rule plus rounding 1.03x and 3.10 kbps. Tried and dropped: deciding pixels near movement afresh without hold (1.25x, no gain).
+- Colour fit every picture (owner's idea: refit the colours each picture so borders fall as after a reset, keep the shown colour unless it moved past a threshold). Against locked colours with the 0.8 hold rule and rounding, border length was already 0.92 to 1.00x of the ideal and refitting did not improve it. Stream, locked against refit (threshold 16): still scene 1.45 and 1.64 kbps; exposure drift 3.30 and 3.68; soft moving 3.03 and 3.21; real light change 3.33 and 3.32 (3.17 at threshold 4). So on synthetic scenes it only pays when the light really changes. Kept as an option to compare on the phone.
 
 None of this is measured on real footage yet. Next measurement: the same tests on clips from the phone.
 

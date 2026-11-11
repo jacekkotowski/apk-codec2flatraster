@@ -19,7 +19,10 @@ struct Flat {
     uint8_t merge[2][FLAT_MAX_COLORS];
     int sep[FLAT_MAX_COLORS][FLAT_MAX_COLORS];
     int round;
-    uint8_t py[FLAT_MAX_COLORS], pu[FLAT_MAX_COLORS], pv[FLAT_MAX_COLORS];
+    uint8_t py[FLAT_MAX_COLORS], pu[FLAT_MAX_COLORS], pv[FLAT_MAX_COLORS]; /* colours shown */
+    uint8_t qy[FLAT_MAX_COLORS], qu[FLAT_MAX_COLORS], qv[FLAT_MAX_COLORS]; /* colours as fitted to the present picture: they decide the borders */
+    double ty_[FLAT_MAX_COLORS], tu_[FLAT_MAX_COLORS], tv_[FLAT_MAX_COLORS]; /* the fit, unrounded */
+    int track;               /* 0: palette locked. Else: refit every picture; a shown colour follows once the fit is this far from it */
     double baseErr;
     int lut[256];
 };
@@ -45,6 +48,7 @@ Flat *flat_create(int w, int h, int colors) {
 
 void flat_destroy(Flat *f) { if (f) { free(f->y); free(f->cnt); free(f); } }
 void flat_reset(Flat *f) { f->have = 0; }
+void flat_set_track(Flat *f, int threshold) { f->track = threshold < 0 ? 0 : threshold; }
 void flat_set_round(Flat *f, int passes) { f->round = passes < 0 ? 0 : passes > 2 ? 2 : passes; }
 
 void flat_set_focus(Flat *f, const int *rects, int count, int coarse) {
@@ -131,7 +135,7 @@ static void bilateral(Flat *f) {
 static inline int nearest(const Flat *f, int y, int u, int v, int *dOut) {
     int best = 0, bd = 1 << 30;
     for (int c = 0; c < f->k; c++) {
-        int d = dist2(y - f->py[c], u - f->pu[c], v - f->pv[c]);
+        int d = dist2(y - f->qy[c], u - f->qu[c], v - f->qv[c]);
         if (d < bd) { bd = d; best = c; }
     }
     if (dOut) *dOut = bd;
@@ -161,7 +165,7 @@ static void buildPalette(Flat *f, int seeded) {
         int o = yy * w + x; sm[3 * n] = f->y[o]; sm[3 * n + 1] = f->u[o]; sm[3 * n + 2] = f->v[o]; n++;
     }
     double cy[FLAT_MAX_COLORS], cu[FLAT_MAX_COLORS], cv[FLAT_MAX_COLORS];
-    if (seeded) for (int c = 0; c < k; c++) { cy[c] = f->py[c]; cu[c] = f->pu[c]; cv[c] = f->pv[c]; }
+    if (seeded) for (int c = 0; c < k; c++) { cy[c] = f->ty_[c]; cu[c] = f->tu_[c]; cv[c] = f->tv_[c]; }
     else {
         /* Farthest-point start: fixed, so the same picture always gives the same palette. */
         cy[0] = sm[3 * (n / 2)]; cu[0] = sm[3 * (n / 2) + 1]; cv[0] = sm[3 * (n / 2) + 2];
@@ -201,6 +205,7 @@ static void buildPalette(Flat *f, int seeded) {
         }
     }
     for (int c = 0; c < k; c++) { f->py[c] = clamp8((int)(cy[c] + 0.5)); f->pu[c] = clamp8((int)(cu[c] + 0.5)); f->pv[c] = clamp8((int)(cv[c] + 0.5)); }
+    for (int c = 0; c < k; c++) { f->ty_[c] = cy[c]; f->tu_[c] = cu[c]; f->tv_[c] = cv[c]; f->qy[c] = f->py[c]; f->qu[c] = f->pu[c]; f->qv[c] = f->pv[c]; }
     free(sm); free(dmin);
     buildMerge(f);
 }
@@ -249,6 +254,38 @@ static void coarsen(Flat *f) {
     for (int i = 0; i < n; i++) f->tmp[i] = f->focus[i] ? f->out[i] : m[f->out[i]];
     majority(f, f->tmp, f->ty);
     for (int i = 0; i < n; i++) f->out[i] = f->focus[i] ? f->out[i] : f->ty[i];
+}
+
+/* Refits the colours to the present picture: a few k-means steps from where they were. The borders between colours
+   then always fall where a brand-new palette would put them (between the picture's real colour groups, where edges
+   are steep and therefore smooth), instead of drifting into flat areas where noise makes them ragged.
+   The colours that are shown stay as they were until the fit has moved more than `track` away, so a region does not
+   change its colour value, and cost bits, for every small shift. Returns 1 if any deciding colour moved. */
+static int trackPalette(Flat *f) {
+    int s = sampleStep(f), w = f->w, h = f->h, k = f->k, moved = 0, shown = 0;
+    double cy[FLAT_MAX_COLORS], cu[FLAT_MAX_COLORS], cv[FLAT_MAX_COLORS];
+    for (int c = 0; c < k; c++) { cy[c] = f->ty_[c]; cu[c] = f->tu_[c]; cv[c] = f->tv_[c]; }
+    for (int it = 0; it < 3; it++) {
+        double ay[FLAT_MAX_COLORS] = {0}, au[FLAT_MAX_COLORS] = {0}, av[FLAT_MAX_COLORS] = {0}; int cnt[FLAT_MAX_COLORS] = {0};
+        for (int yy = s / 2; yy < h; yy += s) for (int x = s / 2; x < w; x += s) {
+            int o = yy * w + x, best = 0; double bd = 1e30;
+            for (int c = 0; c < k; c++) {
+                double dy = f->y[o] - cy[c], du = f->u[o] - cu[c], dv = f->v[o] - cv[c], d = dy * dy + 2 * (du * du + dv * dv);
+                if (d < bd) { bd = d; best = c; }
+            }
+            ay[best] += f->y[o]; au[best] += f->u[o]; av[best] += f->v[o]; cnt[best]++;
+        }
+        for (int c = 0; c < k; c++) if (cnt[c]) { cy[c] = ay[c] / cnt[c]; cu[c] = au[c] / cnt[c]; cv[c] = av[c] / cnt[c]; } /* a colour nobody uses now waits where it is */
+    }
+    for (int c = 0; c < k; c++) {
+        /* half-way steps: the fit glides instead of jumping with each picture's noise */
+        f->ty_[c] += 0.5 * (cy[c] - f->ty_[c]); f->tu_[c] += 0.5 * (cu[c] - f->tu_[c]); f->tv_[c] += 0.5 * (cv[c] - f->tv_[c]);
+        int y = clamp8((int)(f->ty_[c] + 0.5)), u = clamp8((int)(f->tu_[c] + 0.5)), v = clamp8((int)(f->tv_[c] + 0.5));
+        if (y != f->qy[c] || u != f->qu[c] || v != f->qv[c]) { f->qy[c] = (uint8_t)y; f->qu[c] = (uint8_t)u; f->qv[c] = (uint8_t)v; moved = 1; }
+        if (abs(y - f->py[c]) + abs(u - f->pu[c]) + abs(v - f->pv[c]) > f->track) { f->py[c] = (uint8_t)y; f->pu[c] = (uint8_t)u; f->pv[c] = (uint8_t)v; shown = 1; }
+    }
+    if (shown) buildMerge(f);
+    return moved;
 }
 
 int flat_changed(const Flat *f) {
@@ -307,15 +344,17 @@ int flat_run(Flat *f, int smooth, int hold, int clean, int ignore) {
         if (e > 1.6 * f->baseErr + 4) f->bad++; else f->bad = 0;
         if (f->bad >= 3) { buildPalette(f, 1); f->baseErr = paletteError(f); f->bad = 0; rebuilt = 1; }
     }
+    int moved = 0;
+    if (f->track && !rebuilt) { moved = trackPalette(f); if (moved) f->baseErr = paletteError(f); }
     int fresh = rebuilt || !f->have;
     /* Hold: a pixel keeps its colour until the picture has moved clearly past the border between that colour and the
        new one, by `hold`/2 colour steps. The border's place is then decided by the picture as it is now, the same for
        all pixels along it, so it stays as smooth as the picture; noise near the border still can't flip pixels.
        (Before 0.7 each pixel compared itself with its own past, so along a border pixels switched one by one as the
        camera's exposure drifted or things moved, and the border frayed until the next new palette.) */
-    if (fresh) { /* distance between each pair of colours, for the margin */
+    if (fresh || moved) { /* distance between each pair of colours, for the margin */
         for (int a = 0; a < f->k; a++) for (int b = 0; b < f->k; b++)
-            f->sep[a][b] = (int)(sqrt((double)dist2(f->py[a] - f->py[b], f->pu[a] - f->pu[b], f->pv[a] - f->pv[b])) + 0.5);
+            f->sep[a][b] = (int)(sqrt((double)dist2(f->qy[a] - f->qy[b], f->qu[a] - f->qu[b], f->qv[a] - f->qv[b])) + 0.5);
     }
     for (int i = 0; i < n; i++) {
         int y = f->y[i], u = f->u[i], v = f->v[i], bd;
@@ -324,7 +363,7 @@ int flat_run(Flat *f, int smooth, int hold, int clean, int ignore) {
             int old = f->raw[i];
             if (best == old) continue;
             /* dOld - dBest = 2 * (how far past the midpoint) * (distance between the two colours) */
-            int dOld = dist2(y - f->py[old], u - f->pu[old], v - f->pv[old]);
+            int dOld = dist2(y - f->qy[old], u - f->qu[old], v - f->qv[old]);
             if (dOld - bd <= hold * f->sep[old][best]) continue;
         }
         f->raw[i] = (uint8_t)best;
