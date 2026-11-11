@@ -57,7 +57,7 @@ Kept out so far by choice (no AI in the app). Notes for when that changes:
 
 ## Radio
 
-Idea: the .frv packets are already separately checkable, so a modem can carry them. Open: which modem (HamDRM as in the Codec2 Recorder plan would bring GPL-3.0), error correction, how often to repeat full pictures.
+Detailed plan for a new session: [PLAN-radio.md](PLAN-radio.md). Short version: send `.frv` files first, not live video; FreeDV data modes from upstream Codec 2 are the first candidate (same LGPL licence), HamDRM the second (GPL-3.0). The modem sources are not in this repo yet: `third_party/codec2` has only the voice codec's `.c` files.
 
 ## Files to keep
 
