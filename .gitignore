@@ -1,0 +1,18 @@
+# signing: never commit
+*.keystore
+*.jks
+signing.env
+# build output
+out/
+*.apk
+*.idsig
+*.class
+tests/**/pl/
+tests/t4/rt
+tests/c2test
+# test output
+*.raw
+*.wav
+*.log
+*.png
+__pycache__/
