@@ -5,6 +5,7 @@ cd "$(dirname "$0")"
 T=$(mktemp -d)
 echo "== filter"; python3 flat_test.py 2>&1 | grep -vE "^Svt|^\[lib"
 echo "== repeating movement"; python3 motion_test.py 2>&1 | grep -vE "^Svt|^\[lib"
+echo "== borders under camera drift"; python3 border_test.py
 echo "== focus boxes"; python3 focus_test.py 2>&1 | grep -vE "^Svt|^\[lib"
 echo "== camera frame loading"; gcc -O2 -Wall -Wextra -fsanitize=address,undefined -o "$T/rot" rot_test.c ../jni/flat.c -lm && "$T/rot"
 echo "== file format"; bash frv_test.sh

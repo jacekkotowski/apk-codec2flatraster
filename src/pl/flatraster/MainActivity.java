@@ -58,7 +58,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
     // Settings, set from the controls.
     private volatile int sizeIdx = 2, colors = 8, smooth = 2, kbps = 5, wantCodec = -1, c2mode = 5, palSec = 0, keySec = 10, cleanLvl = 1, ignoreLvl = 0, stillLvl = 0, focusLvl = 0, faceCount = 0;
     private volatile double fps = 2;
-    private volatile boolean front, portrait = true, skipSilence;
+    private volatile boolean front, portrait = true, skipSilence, lockLight;
 
     // Filter and recording state, guarded by lock.
     private final Object lock = new Object();
@@ -269,6 +269,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             recording = true;
             w = writer;
         }
+        if (lockLight && camera != null) camera.setLock(true);
         audio = new AudioCapture(c2mode, start, skipSilence, (t, d, len) -> w.write(FrvWriter.AUDIO, t, d, 0, len));
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LOCKED);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -283,6 +284,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             if (enc != null) { enc.close(); enc = null; } // flushes the last pictures into the file
             if (writer != null) { try { writer.close(); } catch (Exception e) { notice = "The recording may be incomplete: " + e.getMessage(); } writer = null; }
         }
+        if (camera != null) camera.setLock(false);
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
         getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
@@ -417,6 +419,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
                 kbps = Math.max(1, Math.min(1000, o.optInt("kbps", kbps)));
                 keySec = Math.max(1, Math.min(600, o.optInt("key", keySec)));
                 skipSilence = o.optBoolean("skip", skipSilence);
+                lockLight = o.optBoolean("lock", lockLight);
                 wantCodec = Math.max(-1, Math.min(FrvWriter.MIME.length - 1, o.optInt("codec", wantCodec)));
                 int m = VoiceBridge.modeOf(o.optString("voice", ""));
                 if (m >= 0) c2mode = m;

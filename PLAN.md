@@ -12,6 +12,8 @@ Last updated: 2026-11-11
 | Full-picture interval, skip silence, clean-up strength | Built, waiting for phone test |
 | Ignore repeating movement, skip still pictures | Filter tested on a computer (leaves and walker scene), waiting for phone test |
 | Faces in full colours, rest in fewer colours (camera's own face detection) | Filter tested on a computer; face boxes from the camera not tested anywhere |
+| Smooth borders: hold rule based on the border, not on each pixel's past (0.7) | Filter tested on a computer, waiting for phone test |
+| Exposure and white balance lock while recording | Built, not tested anywhere |
 | Sending over a narrow link | Not started |
 
 ## What was measured (synthetic clips, AV1 at one quality setting, 320x240)
@@ -23,6 +25,8 @@ Last updated: 2026-11-11
 - Ignoring repeating movement removed 78%, 94% and 98% of leaf flicker at the three levels; the walker stayed fully visible. Stream 5.53 to 4.64 kbps at the middle level.
 - Outside a face box, half the colours: 2.46 to 2.22 kbps; a quarter: 2.06. With no face in view: 1.98 and 1.24.
 - Tried and dropped: drawing the area outside the box in 2x2 or 4x4 blocks. It made the stream bigger (2.84 kbps): staircase edges cost more than smooth ones.
+
+- Fraying borders (seen on the phone: borders ragged until the next new palette). Cause: up to 0.6 each pixel kept its colour until it differed enough from its own past, so pixels along a border switched one by one as exposure drifted. Still scene with drifting exposure and white balance: border length grew to 1.72x of the first picture, 535 pixels changed per picture, 1.45 kbps. With the 0.7 rule (switch only when clearly past the border between the two colours): 1.00x, 66 pixels, 1.39 kbps.
 
 None of this is measured on real footage yet. Next measurement: the same tests on clips from the phone.
 

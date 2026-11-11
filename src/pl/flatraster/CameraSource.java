@@ -42,6 +42,9 @@ final class CameraSource {
     private int sensorDegrees;
     private boolean front;
     private volatile boolean closed;
+    private CaptureRequest.Builder request;
+    private CameraCaptureSession.CaptureCallback callback;
+    private volatile boolean lock;
     /** True if this camera reports faces itself (most do). */
     volatile boolean faceSupported;
     private volatile int[] faces = new int[0];
@@ -105,11 +108,11 @@ final class CameraSource {
                                 @Override public void onConfigured(CameraCaptureSession s) {
                                     if (closed) return;
                                     session = s;
-                                    try {
-                                        s.setRepeatingRequest(rb.build(), !useFace ? null : new CameraCaptureSession.CaptureCallback() {
-                                            @Override public void onCaptureCompleted(CameraCaptureSession cs, CaptureRequest rq, TotalCaptureResult res) { onFaces(res); }
-                                        }, handler);
-                                    }
+                                    request = rb;
+                                    callback = !useFace ? null : new CameraCaptureSession.CaptureCallback() {
+                                        @Override public void onCaptureCompleted(CameraCaptureSession cs, CaptureRequest rq, TotalCaptureResult res) { onFaces(res); }
+                                    };
+                                    try { applyLock(); }
                                     catch (CameraAccessException | IllegalStateException e) { listener.cameraError("The camera did not start: " + e.getMessage()); }
                                 }
                                 @Override public void onConfigureFailed(CameraCaptureSession s) { listener.cameraError("The camera refused the picture settings"); }
@@ -136,6 +139,22 @@ final class CameraSource {
             listener.frame(img, rot, false, now, faces); // front camera is not mirrored: the recording shows the scene as it is
         } catch (IllegalStateException ignored) {
         } finally { if (img != null) img.close(); }
+    }
+
+    /** Freezes exposure and white balance as they are now, or lets them follow the light again. With them frozen the
+     *  colours of a still scene stop wandering, so the palette keeps fitting and borders stay put. */
+    void setLock(boolean on) {
+        lock = on;
+        handler.post(() -> {
+            if (session == null || closed) return;
+            try { applyLock(); } catch (CameraAccessException | IllegalStateException e) { listener.cameraError("The camera refused the exposure lock: " + e.getMessage()); }
+        });
+    }
+
+    private void applyLock() throws CameraAccessException {
+        request.set(CaptureRequest.CONTROL_AE_LOCK, lock);
+        request.set(CaptureRequest.CONTROL_AWB_LOCK, lock);
+        session.setRepeatingRequest(request.build(), callback, handler);
     }
 
     /** Turns the camera's face boxes (sensor coordinates) into boxes in the image the app receives. */

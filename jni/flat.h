@@ -19,8 +19,8 @@ void flat_load_yuv420(Flat *f, const uint8_t *y, int yStride, const uint8_t *u, 
 /* Loads a tightly packed RGB24 frame that already has the output size. For tests. */
 void flat_load_rgb(Flat *f, const uint8_t *rgb);
 
-/* Runs the filter on the loaded frame. smooth: bilateral passes 0..6. hold: 0..60, how far a pixel
-   may drift before it is relabelled. clean: majority-filter passes 0..3. ignore: 0 off, 1..3 how readily
+/* Runs the filter on the loaded frame. smooth: bilateral passes 0..6. hold: 0..60, how far past the border
+   between two colours a pixel must be before it changes colour (in half colour steps). clean: majority-filter passes 0..3. ignore: 0 off, 1..3 how readily
    repeating movement (leaves, water) is frozen. Returns 1 if the palette was rebuilt on this frame. */
 int flat_run(Flat *f, int smooth, int hold, int clean, int ignore);
 

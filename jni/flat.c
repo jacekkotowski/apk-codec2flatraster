@@ -7,7 +7,7 @@ struct Flat {
     int w, h, k, have, bad;
     uint8_t *y, *u, *v;      /* current frame, smoothed in place */
     uint8_t *ty, *tu, *tv;   /* scratch for smoothing */
-    uint8_t *ry, *ru, *rv;   /* colour each pixel had when its label was last set */
+    uint8_t *ry, *ru, *rv;   /* unused since 0.7 (the hold rule no longer compares a pixel with its own past) */
     uint8_t *raw, *out, *tmp;/* labels: before cleanup, after cleanup, scratch */
     uint8_t *disp, *sent;    /* labels after the repeating-movement filter; labels of the last picture that was sent */
     uint8_t *praw, *run, *act; /* repeating-movement filter: previous label, frames it has lasted, recent restlessness */
@@ -17,6 +17,7 @@ struct Flat {
     uint8_t *focus;          /* 1 where the pixel lies inside a focus box (a face) */
     int box[4 * FLAT_MAX_FOCUS], boxes, coarse;
     uint8_t merge[2][FLAT_MAX_COLORS];
+    int sep[FLAT_MAX_COLORS][FLAT_MAX_COLORS];
     uint8_t py[FLAT_MAX_COLORS], pu[FLAT_MAX_COLORS], pv[FLAT_MAX_COLORS];
     double baseErr;
     int lut[256];
@@ -291,12 +292,26 @@ int flat_run(Flat *f, int smooth, int hold, int clean, int ignore) {
         if (f->bad >= 3) { buildPalette(f, 1); f->baseErr = paletteError(f); f->bad = 0; rebuilt = 1; }
     }
     int fresh = rebuilt || !f->have;
+    /* Hold: a pixel keeps its colour until the picture has moved clearly past the border between that colour and the
+       new one, by `hold`/2 colour steps. The border's place is then decided by the picture as it is now, the same for
+       all pixels along it, so it stays as smooth as the picture; noise near the border still can't flip pixels.
+       (Before 0.7 each pixel compared itself with its own past, so along a border pixels switched one by one as the
+       camera's exposure drifted or things moved, and the border frayed until the next new palette.) */
+    if (fresh) { /* distance between each pair of colours, for the margin */
+        for (int a = 0; a < f->k; a++) for (int b = 0; b < f->k; b++)
+            f->sep[a][b] = (int)(sqrt((double)dist2(f->py[a] - f->py[b], f->pu[a] - f->pu[b], f->pv[a] - f->pv[b])) + 0.5);
+    }
     for (int i = 0; i < n; i++) {
-        int y = f->y[i], u = f->u[i], v = f->v[i];
-        /* Temporal hold: small changes (sensor noise) keep the old label, so still areas stay bit-identical. */
-        if (!fresh && abs(y - f->ry[i]) + abs(u - f->ru[i]) + abs(v - f->rv[i]) <= hold) continue;
-        f->raw[i] = (uint8_t)nearest(f, y, u, v, NULL);
-        f->ry[i] = (uint8_t)y; f->ru[i] = (uint8_t)u; f->rv[i] = (uint8_t)v;
+        int y = f->y[i], u = f->u[i], v = f->v[i], bd;
+        int best = nearest(f, y, u, v, &bd);
+        if (!fresh) {
+            int old = f->raw[i];
+            if (best == old) continue;
+            /* dOld - dBest = 2 * (how far past the midpoint) * (distance between the two colours) */
+            int dOld = dist2(y - f->py[old], u - f->pu[old], v - f->pv[old]);
+            if (dOld - bd <= hold * f->sep[old][best]) continue;
+        }
+        f->raw[i] = (uint8_t)best;
     }
     f->have = 1;
     const uint8_t *lab = f->raw;
