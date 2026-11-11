@@ -9,6 +9,11 @@ struct Flat {
     uint8_t *ty, *tu, *tv;   /* scratch for smoothing */
     uint8_t *ry, *ru, *rv;   /* colour each pixel had when its label was last set */
     uint8_t *raw, *out, *tmp;/* labels: before cleanup, after cleanup, scratch */
+    uint8_t *disp, *sent;    /* labels after the repeating-movement filter; labels of the last picture that was sent */
+    uint8_t *praw, *run, *act; /* repeating-movement filter: previous label, frames it has lasted, recent restlessness */
+    uint8_t *cnt;            /* per pixel, how often each colour was seen lately: w*h*k counters */
+    unsigned frameNo;
+    int ignoring;
     uint8_t py[FLAT_MAX_COLORS], pu[FLAT_MAX_COLORS], pv[FLAT_MAX_COLORS];
     double baseErr;
     int lut[256];
@@ -24,15 +29,16 @@ Flat *flat_create(int w, int h, int colors) {
     if (!f) return NULL;
     f->w = w; f->h = h; f->k = colors < 2 ? 2 : colors > FLAT_MAX_COLORS ? FLAT_MAX_COLORS : colors;
     size_t n = (size_t)w * h;
-    uint8_t *block = calloc(12, n);
-    if (!block) { free(f); return NULL; }
-    uint8_t **p[] = {&f->y, &f->u, &f->v, &f->ty, &f->tu, &f->tv, &f->ry, &f->ru, &f->rv, &f->raw, &f->out, &f->tmp};
-    for (int i = 0; i < 12; i++) *p[i] = block + i * n;
+    uint8_t *block = calloc(17, n);
+    f->cnt = calloc(n, (size_t)f->k);
+    if (!block || !f->cnt) { free(block); free(f->cnt); free(f); return NULL; }
+    uint8_t **p[] = {&f->y, &f->u, &f->v, &f->ty, &f->tu, &f->tv, &f->ry, &f->ru, &f->rv, &f->raw, &f->out, &f->tmp, &f->disp, &f->sent, &f->praw, &f->run, &f->act};
+    for (int i = 0; i < 17; i++) *p[i] = block + i * n;
     for (int d = 0; d < 256; d++) f->lut[d] = (int)(256 * exp(-(double)d * d / (2 * 14.0 * 14.0)));
     return f;
 }
 
-void flat_destroy(Flat *f) { if (f) { free(f->y); free(f); } }
+void flat_destroy(Flat *f) { if (f) { free(f->y); free(f->cnt); free(f); } }
 void flat_reset(Flat *f) { f->have = 0; }
 const uint8_t *flat_labels(const Flat *f) { return f->out; }
 int flat_colors(const Flat *f) { return f->k; }
@@ -192,7 +198,38 @@ static void majority(Flat *f, const uint8_t *src, uint8_t *dst) {
     }
 }
 
-int flat_run(Flat *f, int smooth, int hold, int clean) {
+int flat_changed(const Flat *f) {
+    int n = f->w * f->h, c = 0;
+    for (int i = 0; i < n; i++) c += f->out[i] != f->sent[i];
+    return c;
+}
+
+void flat_mark_sent(Flat *f) { memcpy(f->sent, f->out, (size_t)f->w * f->h); }
+
+/* Repeating movement (leaves, water, flicker): a pixel that keeps swapping between the same few colours shows
+   only one of them. A colour the pixel has rarely shown is real movement and is shown at once. */
+static void repeatFilter(Flat *f, int level, int fresh) {
+    static const int ratio[4] = {0, 3, 6, 12}; /* a colour seen at least 1/ratio as often as the shown one counts as usual */
+    int n = f->w * f->h, k = f->k, R = ratio[level > 3 ? 3 : level];
+    if (fresh) { memset(f->cnt, 0, (size_t)n * k); memset(f->run, 0, n); memset(f->act, 0, n); memcpy(f->disp, f->raw, n); memcpy(f->praw, f->raw, n); }
+    int decay = (++f->frameNo & 255) == 0; /* old history fades, so a changed scene is relearned */
+    for (int i = 0; i < n; i++) {
+        uint8_t *c = f->cnt + (size_t)i * k; int r = f->raw[i], d = f->disp[i];
+        if (c[r] == 255 || decay) for (int j = 0; j < k; j++) c[j] >>= 1;
+        c[r]++;
+        /* run: frames the pixel has held its present colour. act: how restless it has been lately. */
+        if (r == f->praw[i]) { if (f->run[i] < 255) f->run[i]++; }
+        else { f->run[i] = 1; f->act[i] = (uint8_t)(f->act[i] > 235 ? 255 : f->act[i] + 20); f->praw[i] = (uint8_t)r; }
+        if (f->act[i]) f->act[i]--;
+        if (r == d) continue;
+        int rare = c[d] < 8 || c[r] * R < c[d];           /* little history, or a colour seldom seen here: real movement */
+        int dominant = c[r] > 2 * c[d];                    /* clearly the usual colour: the background coming back */
+        int settled = f->run[i] >= 2 + f->act[i] / 2;      /* held steadily; a restless pixel must hold much longer */
+        if (rare || dominant || settled) f->disp[i] = (uint8_t)r;
+    }
+}
+
+int flat_run(Flat *f, int smooth, int hold, int clean, int ignore) {
     int n = f->w * f->h, rebuilt = 0;
     if (smooth > 6) smooth = 6;
     for (int i = 0; i < smooth; i++) bilateral(f);
@@ -212,10 +249,13 @@ int flat_run(Flat *f, int smooth, int hold, int clean) {
         f->ry[i] = (uint8_t)y; f->ru[i] = (uint8_t)u; f->rv[i] = (uint8_t)v;
     }
     f->have = 1;
-    if (clean <= 0) memcpy(f->out, f->raw, n);
+    const uint8_t *lab = f->raw;
+    if (ignore > 0) { repeatFilter(f, ignore, fresh || !f->ignoring); lab = f->disp; } /* history restarts when it is switched on */
+    f->ignoring = ignore > 0;
+    if (clean <= 0) memcpy(f->out, lab, n);
     else {
         if (clean > 3) clean = 3;
-        const uint8_t *src = f->raw;
+        const uint8_t *src = lab;
         for (int p = 0; p < clean; p++) {
             uint8_t *dst = (p == clean - 1) ? f->out : (p & 1) ? f->ty : f->tmp;
             majority(f, src, dst); src = dst;

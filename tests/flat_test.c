@@ -1,4 +1,4 @@
-/* Runs flat.c over raw RGB24 frames. Usage: flat_test in.rgb w h colors smooth hold clean out.i420
+/* Runs flat.c over raw RGB24 frames. Usage: flat_test in.rgb w h colors smooth hold clean out.i420 [ignore]
    Prints one line per frame: distinct colours, pixels changed since the previous frame, palette rebuilt, ms. */
 #include "../jni/flat.h"
 #include <stdio.h>
@@ -17,7 +17,7 @@ int main(int argc, char **argv) {
     for (int fr = 0; fread(rgb, 1, n * 3, in) == (size_t)n * 3; fr++) {
         struct timespec a, b; clock_gettime(CLOCK_MONOTONIC, &a);
         flat_load_rgb(f, rgb);
-        int rebuilt = flat_run(f, atoi(argv[5]), atoi(argv[6]), atoi(argv[7]));
+        int rebuilt = flat_run(f, atoi(argv[5]), atoi(argv[6]), atoi(argv[7]), argc > 9 ? atoi(argv[9]) : 0);
         flat_i420(f, i420); flat_argb(f, argb);
         clock_gettime(CLOCK_MONOTONIC, &b);
         int seen[FLAT_MAX_COLORS] = {0}, distinct = 0, changed = 0;

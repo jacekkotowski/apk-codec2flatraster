@@ -54,6 +54,8 @@ select:disabled{opacity:.5}
    <label>Smoothing<select id="smooth"><option value="0">Off</option><option value="1">Light</option><option value="2">Medium</option><option value="3">Strong</option><option value="5">Very strong</option></select></label>
    <label>New colours<select id="pal"><option value="0">Only when needed</option><option value="5">Every 5 s</option><option value="10">Every 10 s</option><option value="30">Every 30 s</option><option value="60">Every minute</option></select></label>
    <label>Clean-up<select id="clean"><option value="1">Light</option><option value="2">Medium</option><option value="3">Strong</option></select></label>
+   <label>Repeating movement<select id="ignore"><option value="0">Record</option><option value="1">Ignore a little</option><option value="2">Ignore</option><option value="3">Ignore a lot</option></select></label>
+   <label>Still pictures<select id="still"><option value="0">Record</option><option value="1">Skip if nothing moves</option><option value="2">Skip small changes</option><option value="3">Skip most changes</option></select></label>
    <label>Video bitrate<select id="kbps"><option value="2">2 kbps</option><option value="3">3 kbps</option><option value="5">5 kbps</option><option value="8">8 kbps</option><option value="12">12 kbps</option><option value="20">20 kbps</option><option value="35">35 kbps</option><option value="50">50 kbps</option><option value="100">100 kbps</option></select></label>
    <label>Video format<select id="codec"><option value="-1">Best available</option><option value="2">AV1</option><option value="1">HEVC</option><option value="0">H.264</option></select></label>
    <label>Full picture every<select id="key"><option value="10">10 s</option><option value="30">30 s</option><option value="60">1 min</option><option value="120">2 min</option></select></label>
@@ -68,8 +70,8 @@ select:disabled{opacity:.5}
 // Outside the app (a desktop browser) a stand-in bridge keeps the page usable for layout checks.
 var A = window.Android || {status:function(){return '{"camera":true,"avail":"0,1"}'},list:function(){return '[]'},voiceModes:function(){return '["3200","2400","1600","1400","1300","1200","700C","450"]'},config:function(){},newPalette:function(){},startRec:function(){},stopRec:function(){},play:function(){},stopPlay:function(){},mp4:function(){},remove:function(){},rename:function(){return true},share:function(){}};
 var $ = function(id){return document.getElementById(id)};
-var ids = ['fps','size','colors','smooth','pal','clean','kbps','key','skip','codec','voice','front'];
-var defaults = {fps:'2',size:'2',colors:'8',smooth:'2',pal:'0',clean:'1',kbps:'5',key:'10',skip:'0',codec:'-1',voice:'1200',front:'0'};
+var ids = ['fps','size','colors','smooth','pal','clean','ignore','still','kbps','key','skip','codec','voice','front'];
+var defaults = {fps:'2',size:'2',colors:'8',smooth:'2',pal:'0',clean:'1',ignore:'0',still:'0',kbps:'5',key:'10',skip:'0',codec:'-1',voice:'1200',front:'0'};
 var rec = false, listKey = '', msgUntil = 0;
 
 JSON.parse(A.voiceModes()).forEach(function(m){var o=document.createElement('option');o.textContent=m;$('voice').appendChild(o)});
@@ -79,7 +81,7 @@ ids.forEach(function(id){ $(id).value = saved[id] != null ? saved[id] : defaults
 function push(){
   var s = {}; ids.forEach(function(id){ s[id] = $(id).value });
   try { localStorage.setItem('set', JSON.stringify(s)) } catch (e) {}
-  A.config(JSON.stringify({fps:+s.fps,size:+s.size,colors:+s.colors,smooth:+s.smooth,pal:+s.pal,clean:+s.clean,kbps:+s.kbps,key:+s.key,skip:s.skip==='1',codec:+s.codec,voice:s.voice,front:s.front==='1'}));
+  A.config(JSON.stringify({fps:+s.fps,size:+s.size,colors:+s.colors,smooth:+s.smooth,pal:+s.pal,clean:+s.clean,ignore:+s.ignore,still:+s.still,kbps:+s.kbps,key:+s.key,skip:s.skip==='1',codec:+s.codec,voice:s.voice,front:s.front==='1'}));
 }
 function clock(ms){ var s=Math.floor(ms/1000), m=Math.floor(s/60); return (m<10?'0':'')+m+':'+(s%60<10?'0':'')+s%60 }
 function size(b){ return b<1024 ? b+' B' : b<1048576 ? (b/1024).toFixed(1)+' kB' : (b/1048576).toFixed(2)+' MB' }
@@ -106,7 +108,7 @@ function tick(){
   Array.prototype.forEach.call($('codec').options, function(o){ if (o.value !== '-1') o.disabled = av.indexOf(o.value) < 0 });
   if (rec) {
     $('clock').textContent = clock(s.ms || 0);
-    $('rate').textContent = 'video ' + ((s.vbps||0)/1000).toFixed(2) + ' kbps, voice ' + Math.round(s.abps||0) + ' bit/s' + (s.quiet ? ' (silence)' : '') + ', ' + size(s.bytes||0) + ', ' + (s.frames||0) + ' pictures';
+    $('rate').textContent = 'video ' + ((s.vbps||0)/1000).toFixed(2) + ' kbps, voice ' + Math.round(s.abps||0) + ' bit/s' + (s.quiet ? ' (silence)' : '') + ', ' + size(s.bytes||0) + ', ' + (s.frames||0) + ' pictures' + (s.skipped ? ' (' + s.skipped + ' skipped)' : '');
     $('lvl').style.width = Math.round(100*(s.level||0)) + '%';
     $('lvl').style.background = s.overload ? 'var(--rec)' : (s.level||0) > 0.85 ? 'var(--amber)' : 'var(--play)';
     $('enc').textContent = s.encoder || '';

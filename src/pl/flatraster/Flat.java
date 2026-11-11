@@ -10,5 +10,8 @@ final class Flat {
     static native void reset(long h);
     /** i420 must hold w*h*3/2 bytes and argb w*h ints. Returns 1 if the palette was rebuilt, -1 if the frame was refused. */
     static native int process(long h, ByteBuffer y, int yStride, ByteBuffer u, ByteBuffer v, int uvStride, int uvPixelStride,
-                              int srcW, int srcH, int rotation, boolean mirror, int smooth, int hold, int clean, byte[] i420, int[] argb);
+                              int srcW, int srcH, int rotation, boolean mirror, int smooth, int hold, int clean, int ignore, byte[] i420, int[] argb);
+    /** Pixels that differ from the last picture marked as sent. */
+    static native int changed(long h);
+    static native void markSent(long h);
 }

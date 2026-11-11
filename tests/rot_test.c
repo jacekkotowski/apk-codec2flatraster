@@ -42,7 +42,7 @@ int main(void) {
         Flat *f = flat_create(w, h, 4);
         uint32_t *argb = malloc(sizeof(uint32_t) * w * h);
         flat_load_yuv420(f, y, YS, uv + 1, uv, UVS, 2, SW, SH, cases[i].rot, cases[i].mirror);
-        flat_run(f, 0, 0, 0); flat_argb(f, argb);
+        flat_run(f, 0, 0, 0, 0); flat_argb(f, argb);
         int px[4] = {(h / 8) * w + w / 8, (h / 8) * w + w - 1 - w / 8, (h - 1 - h / 8) * w + w / 8, (h - 1 - h / 8) * w + w - 1 - w / 8};
         int ok = 1; const char *got[4];
         for (int k = 0; k < 4; k++) { got[k] = name(argb[px[k]]); ok &= !strcmp(got[k], cases[i].want[k]); }

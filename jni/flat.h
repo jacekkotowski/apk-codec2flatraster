@@ -19,9 +19,13 @@ void flat_load_yuv420(Flat *f, const uint8_t *y, int yStride, const uint8_t *u, 
 void flat_load_rgb(Flat *f, const uint8_t *rgb);
 
 /* Runs the filter on the loaded frame. smooth: bilateral passes 0..6. hold: 0..60, how far a pixel
-   may drift before it is relabelled. clean: majority-filter passes 0..3.
-   Returns 1 if the palette was rebuilt on this frame. */
-int flat_run(Flat *f, int smooth, int hold, int clean);
+   may drift before it is relabelled. clean: majority-filter passes 0..3. ignore: 0 off, 1..3 how readily
+   repeating movement (leaves, water) is frozen. Returns 1 if the palette was rebuilt on this frame. */
+int flat_run(Flat *f, int smooth, int hold, int clean, int ignore);
+
+/* Pixels that differ from the last picture marked as sent, and the mark itself. Lets the caller skip still pictures. */
+int flat_changed(const Flat *f);
+void flat_mark_sent(Flat *f);
 
 /* Forces a new palette on the next flat_run. */
 void flat_reset(Flat *f);

@@ -45,6 +45,8 @@ public class MainActivity extends Activity implements CameraSource.Listener {
     static final int[][] SIZES = {{160, 120}, {240, 176}, {320, 240}, {480, 360}};
     /** Clean-up levels 1..3: how far a pixel may drift before it is relabelled, and majority-filter passes. */
     private static final int[] HOLD = {12, 18, 26};
+    /** Skip still pictures, levels 1..3: a picture is stored only if at least this many pixels per thousand changed since the last stored one. */
+    private static final int[] STILL = {3, 10, 30};
 
     private WebView web;
     private ImageView preview;
@@ -54,7 +56,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
     private DisplayManager.DisplayListener displayListener;
 
     // Settings, set from the controls.
-    private volatile int sizeIdx = 2, colors = 8, smooth = 2, kbps = 5, wantCodec = -1, c2mode = 5, palSec = 0, keySec = 10, cleanLvl = 1;
+    private volatile int sizeIdx = 2, colors = 8, smooth = 2, kbps = 5, wantCodec = -1, c2mode = 5, palSec = 0, keySec = 10, cleanLvl = 1, ignoreLvl = 0, stillLvl = 0;
     private volatile double fps = 2;
     private volatile boolean front, portrait = true, skipSilence;
 
@@ -69,7 +71,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
     private long recStartNs;
     private long lastPalNs; // when the palette was last built; guarded by lock
     private volatile boolean recording;
-    private volatile long frames;
+    private volatile long frames, skipped;
     private AudioCapture audio;
     private boolean pendingStart, askedPermission;
 
@@ -197,7 +199,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             if (palSec > 0 && lastPalNs != 0 && timeNs - lastPalNs >= palSec * 1_000_000_000L) Flat.reset(flat);
             Image.Plane[] p = img.getPlanes();
             int r = Flat.process(flat, p[0].getBuffer(), p[0].getRowStride(), p[1].getBuffer(), p[2].getBuffer(), p[1].getRowStride(), p[1].getPixelStride(),
-                    img.getWidth(), img.getHeight(), rotation, mirror, smooth, HOLD[cleanLvl - 1], cleanLvl, i420, argb);
+                    img.getWidth(), img.getHeight(), rotation, mirror, smooth, HOLD[cleanLvl - 1], cleanLvl, ignoreLvl, i420, argb);
             if (r < 0) return;
             cameraOn = true;
             if (r == 1) { // the palette was just rebuilt, by the timer or because the scene stopped fitting it
@@ -205,8 +207,13 @@ public class MainActivity extends Activity implements CameraSource.Listener {
                 if (recording && enc != null) enc.requestKeyFrame();
             }
             if (recording && enc != null) {
-                try { enc.encode(i420, Math.max(0, (timeNs - recStartNs) / 1_000_000)); frames++; }
-                catch (Exception e) { fail = "Recording stopped: " + e.getMessage(); }
+                // Still pictures: compare with the last stored picture, not the last frame, so slow changes add up and get stored.
+                int still = stillLvl;
+                if (still > 0 && frames > 0 && r != 1 && Flat.changed(flat) * 1000L < (long) STILL[still - 1] * fw * fh) skipped++;
+                else {
+                    try { enc.encode(i420, Math.max(0, (timeNs - recStartNs) / 1_000_000)); frames++; Flat.markSent(flat); }
+                    catch (Exception e) { fail = "Recording stopped: " + e.getMessage(); }
+                }
             }
             copy = argb.clone(); w = fw; h = fh;
         }
@@ -251,7 +258,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
                 notice = ex.getMessage() == null ? "Recording did not start" : ex.getMessage();
                 return;
             }
-            enc = e; frames = 0;
+            enc = e; frames = 0; skipped = 0;
             encoderInfo = FrvWriter.CODEC_NAME[e.codec] + " " + fw + "x" + fh + ", asked " + (e.bitrate / 100 / 10.0) + " kbps (" + e.name + ")";
             recStartNs = start = System.nanoTime();
             lastPalNs = start;
@@ -354,7 +361,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
                 FrvWriter wr = writer; AudioCapture a = audio;
                 if (rec && wr != null) {
                     double sec = Math.max(0.001, (System.nanoTime() - recStartNs) / 1e9);
-                    o.put("ms", (long) (sec * 1000)).put("bytes", wr.bytes).put("frames", frames)
+                    o.put("ms", (long) (sec * 1000)).put("bytes", wr.bytes).put("frames", frames).put("skipped", skipped)
                             .put("vbps", wr.videoBytes * 8 / sec).put("abps", wr.audioBytes * 8 / sec)
                             .put("level", a == null ? 0 : a.level).put("overload", a != null && a.overload).put("quiet", a != null && a.quiet);
                     if (a != null) a.overload = false;
@@ -395,6 +402,8 @@ public class MainActivity extends Activity implements CameraSource.Listener {
                 smooth = Math.max(0, Math.min(6, o.optInt("smooth", smooth)));
                 palSec = Math.max(0, Math.min(600, o.optInt("pal", palSec)));
                 cleanLvl = Math.max(1, Math.min(3, o.optInt("clean", cleanLvl)));
+                ignoreLvl = Math.max(0, Math.min(3, o.optInt("ignore", ignoreLvl)));
+                stillLvl = Math.max(0, Math.min(3, o.optInt("still", stillLvl)));
                 if (recording) return;
                 sizeIdx = Math.max(0, Math.min(SIZES.length - 1, o.optInt("size", sizeIdx)));
                 colors = Math.max(2, Math.min(32, o.optInt("colors", colors)));
