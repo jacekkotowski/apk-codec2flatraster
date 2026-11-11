@@ -15,7 +15,7 @@ JNIEXPORT void JNICALL F(setFocus)(JNIEnv *e, jclass c, jlong h, jintArray rects
     if (count) (*e)->GetIntArrayRegion(e, rects, 0, 4 * count, box);
     flat_set_focus(H(h), (const int *)box, count, coarse);
 }
-JNIEXPORT void JNICALL F(setTrack)(JNIEnv *e, jclass c, jlong h, jint threshold) { if (h) flat_set_track(H(h), threshold); }
+JNIEXPORT void JNICALL F(setTrack)(JNIEnv *e, jclass c, jlong h, jint threshold, jboolean full) { if (h) flat_set_track(H(h), threshold, full ? 1 : 0); }
 JNIEXPORT void JNICALL F(setRound)(JNIEnv *e, jclass c, jlong h, jint passes) { if (h) flat_set_round(H(h), passes); }
 JNIEXPORT jint JNICALL F(changed)(JNIEnv *e, jclass c, jlong h) { return h ? flat_changed(H(h)) : 0; }
 JNIEXPORT void JNICALL F(markSent)(JNIEnv *e, jclass c, jlong h) { if (h) flat_mark_sent(H(h)); }

@@ -22,6 +22,7 @@ struct Flat {
     uint8_t py[FLAT_MAX_COLORS], pu[FLAT_MAX_COLORS], pv[FLAT_MAX_COLORS]; /* colours shown */
     uint8_t qy[FLAT_MAX_COLORS], qu[FLAT_MAX_COLORS], qv[FLAT_MAX_COLORS]; /* colours as fitted to the present picture: they decide the borders */
     double ty_[FLAT_MAX_COLORS], tu_[FLAT_MAX_COLORS], tv_[FLAT_MAX_COLORS]; /* the fit, unrounded */
+    int trackFull;           /* 1: refit completely every picture; 0: glide towards the fit */
     int track;               /* 0: palette locked. Else: refit every picture; a shown colour follows once the fit is this far from it */
     double baseErr;
     int lut[256];
@@ -48,7 +49,7 @@ Flat *flat_create(int w, int h, int colors) {
 
 void flat_destroy(Flat *f) { if (f) { free(f->y); free(f->cnt); free(f); } }
 void flat_reset(Flat *f) { f->have = 0; }
-void flat_set_track(Flat *f, int threshold) { f->track = threshold < 0 ? 0 : threshold; }
+void flat_set_track(Flat *f, int threshold, int full) { f->track = threshold < 0 ? 0 : threshold; f->trackFull = full != 0; }
 void flat_set_round(Flat *f, int passes) { f->round = passes < 0 ? 0 : passes > 2 ? 2 : passes; }
 
 void flat_set_focus(Flat *f, const int *rects, int count, int coarse) {
@@ -265,7 +266,7 @@ static int trackPalette(Flat *f) {
     int s = sampleStep(f), w = f->w, h = f->h, k = f->k, moved = 0, shown = 0;
     double cy[FLAT_MAX_COLORS], cu[FLAT_MAX_COLORS], cv[FLAT_MAX_COLORS];
     for (int c = 0; c < k; c++) { cy[c] = f->ty_[c]; cu[c] = f->tu_[c]; cv[c] = f->tv_[c]; }
-    for (int it = 0; it < 3; it++) {
+    for (int it = 0; it < (f->trackFull ? 10 : 3); it++) { /* full: run until the fit has settled, as a new palette does */
         double ay[FLAT_MAX_COLORS] = {0}, au[FLAT_MAX_COLORS] = {0}, av[FLAT_MAX_COLORS] = {0}; int cnt[FLAT_MAX_COLORS] = {0};
         for (int yy = s / 2; yy < h; yy += s) for (int x = s / 2; x < w; x += s) {
             int o = yy * w + x, best = 0; double bd = 1e30;
@@ -279,7 +280,8 @@ static int trackPalette(Flat *f) {
     }
     for (int c = 0; c < k; c++) {
         /* half-way steps: the fit glides instead of jumping with each picture's noise */
-        f->ty_[c] += 0.5 * (cy[c] - f->ty_[c]); f->tu_[c] += 0.5 * (cu[c] - f->tu_[c]); f->tv_[c] += 0.5 * (cv[c] - f->tv_[c]);
+        double g = f->trackFull ? 1.0 : 0.5;
+        f->ty_[c] += g * (cy[c] - f->ty_[c]); f->tu_[c] += g * (cu[c] - f->tu_[c]); f->tv_[c] += g * (cv[c] - f->tv_[c]);
         int y = clamp8((int)(f->ty_[c] + 0.5)), u = clamp8((int)(f->tu_[c] + 0.5)), v = clamp8((int)(f->tv_[c] + 0.5));
         if (y != f->qy[c] || u != f->qu[c] || v != f->qv[c]) { f->qy[c] = (uint8_t)y; f->qu[c] = (uint8_t)u; f->qv[c] = (uint8_t)v; moved = 1; }
         if (abs(y - f->py[c]) + abs(u - f->pu[c]) + abs(v - f->pv[c]) > f->track) { f->py[c] = (uint8_t)y; f->pu[c] = (uint8_t)u; f->pv[c] = (uint8_t)v; shown = 1; }

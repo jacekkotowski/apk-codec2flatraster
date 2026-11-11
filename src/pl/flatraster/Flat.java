@@ -14,8 +14,8 @@ final class Flat {
     /** Pixels that differ from the last picture marked as sent. */
     static native int changed(long h);
     static native void markSent(long h);
-    /** 0: colours locked between rebuilds. Above 0: colours are refitted to every picture and a shown colour follows once the fit is this far from it. */
-    static native void setTrack(long h, int threshold);
+    /** 0: colours locked between rebuilds. Above 0: colours are refitted to every picture (full: completely, as a new palette would; else gliding) and a shown colour follows once the fit is this far from it. */
+    static native void setTrack(long h, int threshold, boolean full);
     /** Border rounding passes, 0..2. */
     static native void setRound(long h, int passes);
     /** Up to 4 boxes of x0,y0,x1,y1 in camera-frame pixels. coarse 1 or 2 gives everything outside them a half or a quarter of the colours; 0 switches it off. */
