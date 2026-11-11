@@ -2,7 +2,7 @@
 
 Android app that records low-frame-rate video made flat on purpose (few solid colours, hard edges) so it needs very few bits, together with a Codec 2 voice track. Built so the same packets can later be sent over a narrow link such as HF radio. Everything is stored in one `.frv` file; the app can also save a normal `.mp4`.
 
-Current version: 0.1. Not yet confirmed on a phone: camera, video encoders, microphone levels, playback, MP4 saving, sharing. Only the camera, posterize filter and preview were seen working, on an emulator.
+Current version: 0.2. Version 0.1 was reported working on the owner's phone. The Flip camera button in 0.2 has not been tried on a phone.
 
 ## How it works
 
