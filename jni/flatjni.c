@@ -7,6 +7,14 @@
 JNIEXPORT jlong JNICALL F(create)(JNIEnv *e, jclass c, jint w, jint h, jint colors) { return (jlong)(intptr_t)flat_create(w, h, colors); }
 JNIEXPORT void JNICALL F(destroy)(JNIEnv *e, jclass c, jlong h) { if (h) flat_destroy(H(h)); }
 JNIEXPORT void JNICALL F(reset)(JNIEnv *e, jclass c, jlong h) { if (h) flat_reset(H(h)); }
+JNIEXPORT void JNICALL F(setFocus)(JNIEnv *e, jclass c, jlong h, jintArray rects, jint count, jint coarse) {
+    if (!h) return;
+    jint box[4 * FLAT_MAX_FOCUS];
+    if (count > FLAT_MAX_FOCUS) count = FLAT_MAX_FOCUS;
+    if (!rects || count < 0 || (*e)->GetArrayLength(e, rects) < 4 * count) count = 0;
+    if (count) (*e)->GetIntArrayRegion(e, rects, 0, 4 * count, box);
+    flat_set_focus(H(h), (const int *)box, count, coarse);
+}
 JNIEXPORT jint JNICALL F(changed)(JNIEnv *e, jclass c, jlong h) { return h ? flat_changed(H(h)) : 0; }
 JNIEXPORT void JNICALL F(markSent)(JNIEnv *e, jclass c, jlong h) { if (h) flat_mark_sent(H(h)); }
 

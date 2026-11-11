@@ -56,7 +56,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
     private DisplayManager.DisplayListener displayListener;
 
     // Settings, set from the controls.
-    private volatile int sizeIdx = 2, colors = 8, smooth = 2, kbps = 5, wantCodec = -1, c2mode = 5, palSec = 0, keySec = 10, cleanLvl = 1, ignoreLvl = 0, stillLvl = 0;
+    private volatile int sizeIdx = 2, colors = 8, smooth = 2, kbps = 5, wantCodec = -1, c2mode = 5, palSec = 0, keySec = 10, cleanLvl = 1, ignoreLvl = 0, stillLvl = 0, focusLvl = 0, faceCount = 0;
     private volatile double fps = 2;
     private volatile boolean front, portrait = true, skipSilence;
 
@@ -182,7 +182,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
     @Override public void cameraError(String message) { cameraOn = false; notice = message; }
 
     /** Camera thread: posterize the frame, show it, and encode it while recording. */
-    @Override public void frame(Image img, int rotation, boolean mirror, long timeNs) {
+    @Override public void frame(Image img, int rotation, boolean mirror, long timeNs, int[] faces) {
         if (player != null && !recording) return; // the picture area is showing a recording
         final int[] copy; final int w, h; String fail = null;
         synchronized (lock) {
@@ -197,6 +197,10 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             if (flat == 0) return;
             // New colours every palSec seconds. The first frame of the new palette is a full key picture, since every colour changes.
             if (palSec > 0 && lastPalNs != 0 && timeNs - lastPalNs >= palSec * 1_000_000_000L) Flat.reset(flat);
+            // Faces: full colours inside the boxes, fewer colours everywhere else.
+            int focus = focusLvl, nFaces = focus > 0 && faces != null ? faces.length / 4 : 0;
+            Flat.setFocus(flat, faces, nFaces, focus);
+            faceCount = nFaces;
             Image.Plane[] p = img.getPlanes();
             int r = Flat.process(flat, p[0].getBuffer(), p[0].getRowStride(), p[1].getBuffer(), p[2].getBuffer(), p[1].getRowStride(), p[1].getPixelStride(),
                     img.getWidth(), img.getHeight(), rotation, mirror, smooth, HOLD[cleanLvl - 1], cleanLvl, ignoreLvl, i420, argb);
@@ -358,6 +362,8 @@ public class MainActivity extends Activity implements CameraSource.Listener {
                 int w = portrait ? s[1] : s[0], h = portrait ? s[0] : s[1];
                 if (w != availW || h != availH) { avail = VideoEncoder.available(w, h); availW = w; availH = h; }
                 o.put("avail", avail).put("w", w).put("h", h);
+                CameraSource cam = camera;
+                o.put("focus", focusLvl > 0).put("faces", faceCount).put("faceOk", cam != null && cam.faceSupported);
                 FrvWriter wr = writer; AudioCapture a = audio;
                 if (rec && wr != null) {
                     double sec = Math.max(0.001, (System.nanoTime() - recStartNs) / 1e9);
@@ -404,6 +410,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
                 cleanLvl = Math.max(1, Math.min(3, o.optInt("clean", cleanLvl)));
                 ignoreLvl = Math.max(0, Math.min(3, o.optInt("ignore", ignoreLvl)));
                 stillLvl = Math.max(0, Math.min(3, o.optInt("still", stillLvl)));
+                focusLvl = Math.max(0, Math.min(2, o.optInt("focus", focusLvl)));
                 if (recording) return;
                 sizeIdx = Math.max(0, Math.min(SIZES.length - 1, o.optInt("size", sizeIdx)));
                 colors = Math.max(2, Math.min(32, o.optInt("colors", colors)));

@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #define FLAT_MAX_COLORS 32
+#define FLAT_MAX_FOCUS 4
 
 typedef struct Flat Flat;
 
@@ -26,6 +27,11 @@ int flat_run(Flat *f, int smooth, int hold, int clean, int ignore);
 /* Pixels that differ from the last picture marked as sent, and the mark itself. Lets the caller skip still pictures. */
 int flat_changed(const Flat *f);
 void flat_mark_sent(Flat *f);
+
+/* Focus boxes (faces): count boxes of x0,y0,x1,y1 in the pixels of the frame given to the next flat_load_*.
+   coarse 0: no effect. 1 or 2: everything outside the boxes uses only a half or a quarter of the colours. With no
+   boxes that applies to the whole picture. Call before loading a frame. */
+void flat_set_focus(Flat *f, const int *rects, int count, int coarse);
 
 /* Forces a new palette on the next flat_run. */
 void flat_reset(Flat *f);

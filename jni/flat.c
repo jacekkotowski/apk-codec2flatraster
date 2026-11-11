@@ -14,6 +14,9 @@ struct Flat {
     uint8_t *cnt;            /* per pixel, how often each colour was seen lately: w*h*k counters */
     unsigned frameNo;
     int ignoring;
+    uint8_t *focus;          /* 1 where the pixel lies inside a focus box (a face) */
+    int box[4 * FLAT_MAX_FOCUS], boxes, coarse;
+    uint8_t merge[2][FLAT_MAX_COLORS];
     uint8_t py[FLAT_MAX_COLORS], pu[FLAT_MAX_COLORS], pv[FLAT_MAX_COLORS];
     double baseErr;
     int lut[256];
@@ -29,17 +32,28 @@ Flat *flat_create(int w, int h, int colors) {
     if (!f) return NULL;
     f->w = w; f->h = h; f->k = colors < 2 ? 2 : colors > FLAT_MAX_COLORS ? FLAT_MAX_COLORS : colors;
     size_t n = (size_t)w * h;
-    uint8_t *block = calloc(17, n);
+    uint8_t *block = calloc(18, n);
     f->cnt = calloc(n, (size_t)f->k);
     if (!block || !f->cnt) { free(block); free(f->cnt); free(f); return NULL; }
-    uint8_t **p[] = {&f->y, &f->u, &f->v, &f->ty, &f->tu, &f->tv, &f->ry, &f->ru, &f->rv, &f->raw, &f->out, &f->tmp, &f->disp, &f->sent, &f->praw, &f->run, &f->act};
-    for (int i = 0; i < 17; i++) *p[i] = block + i * n;
+    uint8_t **p[] = {&f->y, &f->u, &f->v, &f->ty, &f->tu, &f->tv, &f->ry, &f->ru, &f->rv, &f->raw, &f->out, &f->tmp, &f->disp, &f->sent, &f->praw, &f->run, &f->act, &f->focus};
+    for (int i = 0; i < 18; i++) *p[i] = block + i * n;
     for (int d = 0; d < 256; d++) f->lut[d] = (int)(256 * exp(-(double)d * d / (2 * 14.0 * 14.0)));
     return f;
 }
 
 void flat_destroy(Flat *f) { if (f) { free(f->y); free(f->cnt); free(f); } }
 void flat_reset(Flat *f) { f->have = 0; }
+
+void flat_set_focus(Flat *f, const int *rects, int count, int coarse) {
+    f->boxes = count < 0 ? 0 : count > FLAT_MAX_FOCUS ? FLAT_MAX_FOCUS : count;
+    if (f->boxes) memcpy(f->box, rects, sizeof(int) * 4 * f->boxes);
+    f->coarse = coarse < 0 ? 0 : coarse > 2 ? 2 : coarse;
+}
+
+static inline uint8_t inFocus(const Flat *f, int sx, int sy) {
+    for (int b = 0; b < f->boxes; b++) { const int *r = f->box + 4 * b; if (sx >= r[0] && sx < r[2] && sy >= r[1] && sy < r[3]) return 1; }
+    return 0;
+}
 const uint8_t *flat_labels(const Flat *f) { return f->out; }
 int flat_colors(const Flat *f) { return f->k; }
 
@@ -50,6 +64,7 @@ void flat_load_rgb(Flat *f, const uint8_t *rgb) {
         f->y[i] = clamp8((77 * r + 150 * g + 29 * b + 128) >> 8);
         f->u[i] = clamp8(((-43 * r - 85 * g + 128 * b + 128) >> 8) + 128);
         f->v[i] = clamp8(((128 * r - 107 * g - 21 * b + 128) >> 8) + 128);
+        f->focus[i] = inFocus(f, i % f->w, i / f->w);
     }
 }
 
@@ -63,7 +78,7 @@ void flat_load_yuv420(Flat *f, const uint8_t *y, int yStride, const uint8_t *u, 
     int x0 = (rw - cw) / 2, y0 = (rh - ch) / 2;
     int taps = cw / w; if (taps < 1) taps = 1; if (taps > 4) taps = 4;
     for (int oy = 0; oy < h; oy++) for (int ox = 0; ox < w; ox++) {
-        int sy_ = 0, su = 0, sv = 0;
+        int sy_ = 0, su = 0, sv = 0, fx = 0, fy = 0;
         for (int j = 0; j < taps; j++) for (int i = 0; i < taps; i++) {
             int x = x0 + (int)(((long long)(ox * taps + i) * cw) / (w * taps));
             int yy = y0 + (int)(((long long)(oy * taps + j) * ch) / (h * taps));
@@ -78,11 +93,13 @@ void flat_load_yuv420(Flat *f, const uint8_t *y, int yStride, const uint8_t *u, 
             sx = sx < 0 ? 0 : sx >= sw ? sw - 1 : sx;
             sy = sy < 0 ? 0 : sy >= sh ? sh - 1 : sy;
             sy_ += y[sy * yStride + sx];
+            if (i == taps / 2 && j == taps / 2) { fx = sx; fy = sy; }
             int c = (sy / 2) * uvStride + (sx / 2) * uvPixStride;
             su += u[c]; sv += v[c];
         }
         int n = taps * taps, o = oy * w + ox;
         f->y[o] = (uint8_t)((sy_ + n / 2) / n); f->u[o] = (uint8_t)((su + n / 2) / n); f->v[o] = (uint8_t)((sv + n / 2) / n);
+        f->focus[o] = inFocus(f, fx, fy); /* boxes are in source pixels, so rotation and cropping need no extra maths */
     }
 }
 
@@ -128,6 +145,8 @@ static double paletteError(const Flat *f) {
     }
     return n ? sum / n : 0;
 }
+
+static void buildMerge(Flat *f);
 
 /* k-means on a subsample. seeded=1 starts from the current palette, so colour indexes keep their meaning. */
 static void buildPalette(Flat *f, int seeded) {
@@ -180,6 +199,7 @@ static void buildPalette(Flat *f, int seeded) {
     }
     for (int c = 0; c < k; c++) { f->py[c] = clamp8((int)(cy[c] + 0.5)); f->pu[c] = clamp8((int)(cu[c] + 0.5)); f->pv[c] = clamp8((int)(cv[c] + 0.5)); }
     free(sm); free(dmin);
+    buildMerge(f);
 }
 
 /* A pixel whose label is rare among its 8 neighbours takes the most common one. */
@@ -196,6 +216,36 @@ static void majority(Flat *f, const uint8_t *src, uint8_t *dst) {
         }
         dst[o] = cnt[self] <= 2 ? (uint8_t)best : (uint8_t)self;
     }
+}
+
+/* Fills merge[level]: each colour's stand-in when only a half (level 0) or a quarter (level 1) of the colours may be
+   used. The two closest colours are merged, again and again, until few enough are left. */
+static void buildMerge(Flat *f) {
+    int k = f->k, rep[FLAT_MAX_COLORS], left = k;
+    for (int c = 0; c < k; c++) rep[c] = c;
+    for (int level = 0; level < 2; level++) {
+        int target = k >> (level + 1); if (target < 2) target = 2;
+        while (left > target) {
+            int ba = 0, bb = 1, bd = 1 << 30;
+            for (int a = 0; a < k; a++) if (rep[a] == a) for (int b = a + 1; b < k; b++) if (rep[b] == b) {
+                int d = dist2(f->py[a] - f->py[b], f->pu[a] - f->pu[b], f->pv[a] - f->pv[b]);
+                if (d < bd) { bd = d; ba = a; bb = b; }
+            }
+            for (int c = 0; c < k; c++) if (rep[c] == bb) rep[c] = ba;
+            left--;
+        }
+        for (int c = 0; c < k; c++) f->merge[level][c] = (uint8_t)rep[c];
+    }
+}
+
+/* Outside the focus boxes only half or a quarter of the colours are used, and small regions are cleaned away once
+   more: fewer edges there, so the bits go to the boxes. (Drawing the rest in blocks was tried and made the stream
+   bigger: staircase edges cost more than smooth ones.) */
+static void coarsen(Flat *f) {
+    int n = f->w * f->h; const uint8_t *m = f->merge[f->coarse - 1];
+    for (int i = 0; i < n; i++) f->tmp[i] = f->focus[i] ? f->out[i] : m[f->out[i]];
+    majority(f, f->tmp, f->ty);
+    for (int i = 0; i < n; i++) f->out[i] = f->focus[i] ? f->out[i] : f->ty[i];
 }
 
 int flat_changed(const Flat *f) {
@@ -261,6 +311,7 @@ int flat_run(Flat *f, int smooth, int hold, int clean, int ignore) {
             majority(f, src, dst); src = dst;
         }
     }
+    if (f->coarse) coarsen(f);
     return rebuilt;
 }
 
