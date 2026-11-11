@@ -37,6 +37,8 @@ void flat_set_focus(Flat *f, const int *rects, int count, int coarse);
    (borders fall as after a new palette), and a shown colour changes only once the fit is more than `threshold` away.
    full 1: the fit runs until settled every picture; 0: it glides towards it. */
 void flat_set_track(Flat *f, int threshold, int full);
+/* full 2: a brand-new palette every picture; each new colour within `threshold` of a colour shown in the previous
+   picture is shown as that previous colour (closest pairs first, each previous colour used once). */
 
 /* Border rounding: 0 off, 1 or 2 passes of a 5x5 most-common-colour filter after everything else. */
 void flat_set_round(Flat *f, int passes);

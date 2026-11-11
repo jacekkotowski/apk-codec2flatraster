@@ -22,7 +22,7 @@ struct Flat {
     uint8_t py[FLAT_MAX_COLORS], pu[FLAT_MAX_COLORS], pv[FLAT_MAX_COLORS]; /* colours shown */
     uint8_t qy[FLAT_MAX_COLORS], qu[FLAT_MAX_COLORS], qv[FLAT_MAX_COLORS]; /* colours as fitted to the present picture: they decide the borders */
     double ty_[FLAT_MAX_COLORS], tu_[FLAT_MAX_COLORS], tv_[FLAT_MAX_COLORS]; /* the fit, unrounded */
-    int trackFull;           /* 1: refit completely every picture; 0: glide towards the fit */
+    int trackFull;           /* 2: brand-new palette every picture, matched to the previous colours; 1: refit from the previous palette; 0: glide */
     int track;               /* 0: palette locked. Else: refit every picture; a shown colour follows once the fit is this far from it */
     double baseErr;
     int lut[256];
@@ -49,7 +49,7 @@ Flat *flat_create(int w, int h, int colors) {
 
 void flat_destroy(Flat *f) { if (f) { free(f->y); free(f->cnt); free(f); } }
 void flat_reset(Flat *f) { f->have = 0; }
-void flat_set_track(Flat *f, int threshold, int full) { f->track = threshold < 0 ? 0 : threshold; f->trackFull = full != 0; }
+void flat_set_track(Flat *f, int threshold, int full) { f->track = threshold < 0 ? 0 : threshold; f->trackFull = full < 0 ? 0 : full > 2 ? 2 : full; }
 void flat_set_round(Flat *f, int passes) { f->round = passes < 0 ? 0 : passes > 2 ? 2 : passes; }
 
 void flat_set_focus(Flat *f, const int *rects, int count, int coarse) {
@@ -290,6 +290,37 @@ static int trackPalette(Flat *f) {
     return moved;
 }
 
+/* A brand-new palette for this picture, then each new colour is attributed to the nearest colour shown in the
+   previous picture: if it is within `track` of it, that previous colour is shown in its place. So the borders are
+   those of a fresh palette every time, while colour values only change when a colour is really new.
+   Each previous colour is given to one new colour at most (closest pairs first), so two new colours never collapse
+   into one. Pixels keep their identity through the change: each old colour index is translated to the new colour
+   nearest to it, so the hold rule still works. */
+static void freshPalette(Flat *f) {
+    int k = f->k, n = f->w * f->h;
+    uint8_t oq[3][FLAT_MAX_COLORS], op[3][FLAT_MAX_COLORS], map[FLAT_MAX_COLORS];
+    for (int c = 0; c < k; c++) { oq[0][c] = f->qy[c]; oq[1][c] = f->qu[c]; oq[2][c] = f->qv[c]; op[0][c] = f->py[c]; op[1][c] = f->pu[c]; op[2][c] = f->pv[c]; }
+    buildPalette(f, 0);
+    for (int j = 0; j < k; j++) { /* old index -> new index */
+        int best = 0, bd = 1 << 30;
+        for (int c = 0; c < k; c++) { int d = dist2(oq[0][j] - f->qy[c], oq[1][j] - f->qu[c], oq[2][j] - f->qv[c]); if (d < bd) { bd = d; best = c; } }
+        map[j] = (uint8_t)best;
+    }
+    for (int i = 0; i < n; i++) { f->raw[i] = map[f->raw[i]]; f->disp[i] = map[f->disp[i]]; f->sent[i] = map[f->sent[i]]; }
+    int usedOld[FLAT_MAX_COLORS] = {0}, doneNew[FLAT_MAX_COLORS] = {0};
+    for (;;) { /* closest remaining pair of (new colour, previous shown colour) within the threshold */
+        int bn = -1, bo = -1, bd = f->track + 1;
+        for (int c = 0; c < k; c++) if (!doneNew[c]) for (int j = 0; j < k; j++) if (!usedOld[j]) {
+            int d = abs(f->qy[c] - op[0][j]) + abs(f->qu[c] - op[1][j]) + abs(f->qv[c] - op[2][j]);
+            if (d < bd) { bd = d; bn = c; bo = j; }
+        }
+        if (bn < 0) break;
+        f->py[bn] = op[0][bo]; f->pu[bn] = op[1][bo]; f->pv[bn] = op[2][bo];
+        doneNew[bn] = 1; usedOld[bo] = 1;
+    }
+    buildMerge(f);
+}
+
 int flat_changed(const Flat *f) {
     int n = f->w * f->h, c = 0;
     for (int i = 0; i < n; i++) c += f->out[i] != f->sent[i];
@@ -347,7 +378,10 @@ int flat_run(Flat *f, int smooth, int hold, int clean, int ignore) {
         if (f->bad >= 3) { buildPalette(f, 1); f->baseErr = paletteError(f); f->bad = 0; rebuilt = 1; }
     }
     int moved = 0;
-    if (f->track && !rebuilt) { moved = trackPalette(f); if (moved) f->baseErr = paletteError(f); }
+    if (f->track && !rebuilt) {
+        if (f->trackFull == 2) { freshPalette(f); moved = 1; } else moved = trackPalette(f);
+        if (moved) f->baseErr = paletteError(f);
+    }
     int fresh = rebuilt || !f->have;
     /* Hold: a pixel keeps its colour until the picture has moved clearly past the border between that colour and the
        new one, by `hold`/2 colour steps. The border's place is then decided by the picture as it is now, the same for

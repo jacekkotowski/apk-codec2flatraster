@@ -10,7 +10,7 @@ int main(int argc, char **argv) {
     if (argc < 9) { fprintf(stderr, "usage\n"); return 2; }
     int w = atoi(argv[2]), h = atoi(argv[3]), n = w * h;
     Flat *f = flat_create(w, h, atoi(argv[4]));
-    if (getenv("FLAT_TRACK")) flat_set_track(f, atoi(getenv("FLAT_TRACK")), getenv("FLAT_TRACK_FULL") != NULL); /* colour tracking threshold */
+    if (getenv("FLAT_TRACK")) flat_set_track(f, atoi(getenv("FLAT_TRACK")), getenv("FLAT_TRACK_FULL") ? atoi(getenv("FLAT_TRACK_FULL")) : 0); /* colour tracking threshold */
     if (getenv("FLAT_ROUND")) flat_set_round(f, atoi(getenv("FLAT_ROUND"))); /* border rounding passes */
     FILE *in = fopen(argv[1], "rb"), *out = fopen(argv[8], "wb");
     if (!f || !in || !out) { fprintf(stderr, "open failed\n"); return 2; }

@@ -201,7 +201,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             int focus = focusLvl, nFaces = focus > 0 && faces != null ? faces.length / 4 : 0;
             Flat.setFocus(flat, faces, nFaces, focus);
             Flat.setRound(flat, roundLvl);
-            Flat.setTrack(flat, palSec < 0 ? trackThr : 0, true); // palSec -1: new colours every picture
+            Flat.setTrack(flat, palSec < 0 ? trackThr : 0, 2); // palSec -1: a new palette every picture, matched to the previous colours
             faceCount = nFaces;
             Image.Plane[] p = img.getPlanes();
             int r = Flat.process(flat, p[0].getBuffer(), p[0].getRowStride(), p[1].getBuffer(), p[2].getBuffer(), p[1].getRowStride(), p[1].getPixelStride(),
