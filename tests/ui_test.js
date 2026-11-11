@@ -30,6 +30,32 @@ const { chromium } = require('playwright');
     await p.screenshot({ path: process.argv[3] + '/ui_' + name + '.png' });
     await p.close();
   }
+  // Rename and Delete must work without the browser's prompt/confirm boxes (a WebView does not show them).
+  {
+    const p = await b.newPage({ viewport: { width: 412, height: 700 } });
+    p.on('pageerror', e => errors.push('edit: ' + e.message));
+    p.on('dialog', d => { errors.push('edit: a browser dialog was opened: ' + d.type()); d.dismiss(); });
+    await p.addInitScript(() => {
+      window.calls = [];
+      window.Android = { status: () => '{"camera":true,"avail":"0"}', list: () => '[{"name":"a.frv","size":100,"time":1,"ms":1000,"codec":"AV1"}]',
+        voiceModes: () => '["1200"]', config(){}, newPalette(){}, startRec(){}, stopRec(){}, play(){}, stopPlay(){}, mp4(){}, share(){},
+        remove: (n) => { window.calls.push('remove:' + n) }, rename: (n, to) => { window.calls.push('rename:' + n + '>' + to); return to !== 'bad' } };
+    });
+    await p.goto('file://' + process.argv[2]);
+    await p.waitForTimeout(500);
+    await p.click('text=Rename'); await p.fill('.item input', 'bad'); await p.click('text=Save name'); await p.waitForTimeout(400);
+    const refused = await p.evaluate(() => document.getElementById('msg').textContent);
+    await p.fill('.item input', 'holiday'); await p.press('.item input', 'Enter'); await p.waitForTimeout(400);
+    await p.click('text=Delete'); await p.click('text=Cancel'); await p.waitForTimeout(400);
+    await p.click('text=Delete'); await p.click('text=Yes, delete forever'); await p.waitForTimeout(400);
+    const calls = await p.evaluate(() => window.calls.join(' '));
+    const want = 'rename:a.frv>bad rename:a.frv>holiday remove:a.frv';
+    console.log('edit', JSON.stringify({ calls, refused }));
+    if (calls !== want) errors.push('edit: expected "' + want + '", got "' + calls + '"');
+    if (!refused) errors.push('edit: a refused name showed no message');
+    await p.screenshot({ path: process.argv[3] + '/ui_edit.png' });
+    await p.close();
+  }
   console.log('errors:', JSON.stringify(errors));
   await b.close();
 })();

@@ -34,6 +34,9 @@ select:disabled{opacity:.5}
 .item span{color:var(--dim);font:12px var(--mono)}
 .item .row{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}.item .row button{min-height:40px;font-size:14px;padding:0 10px}
 .item.playing b{color:var(--play)}
+.item input{flex:1;min-width:120px;min-height:40px;font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:0 8px}
+.item input:focus-visible{outline:2px solid var(--amber);outline-offset:1px}
+button.danger{background:var(--rec);border-color:var(--rec);color:#fff}
 .bar{height:4px;background:var(--bg);margin-top:6px;border-radius:2px;overflow:hidden}.bar i{display:block;height:100%;width:0;background:var(--play)}
 #empty{color:var(--dim);padding:18px 0;font-size:14px}
 </style></head><body>
@@ -76,7 +79,7 @@ var A = window.Android || {status:function(){return '{"camera":true,"avail":"0,1
 var $ = function(id){return document.getElementById(id)};
 var ids = ['fps','size','colors','smooth','pal','thr','clean','round','lock','focus','ignore','still','kbps','key','skip','codec','voice','front'];
 var defaults = {fps:'2',size:'2',colors:'8',smooth:'2',pal:'0',thr:'16',clean:'1',round:'1',lock:'0',focus:'0',ignore:'0',still:'0',kbps:'5',key:'10',skip:'0',codec:'-1',voice:'1200',front:'0'};
-var rec = false, listKey = '', msgUntil = 0;
+var rec = false, listKey = '', msgUntil = 0, renaming = null, renameText = null, confirmDel = null;
 
 JSON.parse(A.voiceModes()).forEach(function(m){var o=document.createElement('option');o.textContent=m;$('voice').appendChild(o)});
 var saved = {}; try { saved = JSON.parse(localStorage.getItem('set') || '{}') } catch (e) {}
@@ -128,7 +131,7 @@ function tick(){
 
 function draw(s){
   var items; try { items = JSON.parse(A.list()) } catch (e) { return }
-  var key = JSON.stringify(items) + '|' + (s.play||'') + '|' + rec + '|' + !!s.exporting;
+  var key = JSON.stringify(items) + '|' + (s.play||'') + '|' + rec + '|' + !!s.exporting + '|' + renaming + '|' + confirmDel;
   if (key !== listKey) {
     listKey = key;
     var box = $('list'); box.textContent = '';
@@ -145,9 +148,28 @@ function draw(s){
         if (s.play === it.name) add('Stop', function(){ A.stopPlay() }); else add('Play', function(){ A.play(it.name) }, rec);
         add('Save MP4', function(){ A.mp4(it.name) }, s.exporting);
         add('Share', function(){ A.share(it.name) });
-        add('Rename', function(){ var n = prompt('New name', it.name.replace(/\.frv$/, '')); if (n && !A.rename(it.name, n)) say('That name is taken or not usable') });
-        add('Delete', function(){ if (confirm('Delete ' + it.name + '?')) A.remove(it.name) });
+        // Rename and Delete ask on the page itself: Android's WebView does not show the browser's prompt and confirm boxes.
+        add('Rename', function(){ renaming = renaming === it.name ? null : it.name; renameText = null; confirmDel = null; listKey = '' });
+        add('Delete', function(){ confirmDel = confirmDel === it.name ? null : it.name; renaming = null; listKey = '' });
         d.appendChild(row);
+        if (renaming === it.name) {
+          var r2 = document.createElement('div'); r2.className = 'row';
+          var inp = document.createElement('input'); inp.type = 'text'; inp.value = renameText != null ? renameText : it.name.replace(/\.frv$/, ''); inp.setAttribute('aria-label', 'New name');
+          inp.oninput = function(){ renameText = inp.value }; // the list is redrawn while a recording grows: keep what was typed
+          var save = function(){ if (A.rename(it.name, inp.value)) { renaming = null; renameText = null; listKey = '' } else say("That name is taken or can't be used") };
+          inp.onkeydown = function(e){ if (e.key === 'Enter') save() };
+          r2.appendChild(inp);
+          var b1 = document.createElement('button'); b1.textContent = 'Save name'; b1.onclick = save; r2.appendChild(b1);
+          var b2 = document.createElement('button'); b2.textContent = 'Cancel'; b2.onclick = function(){ renaming = null; renameText = null; listKey = '' }; r2.appendChild(b2);
+          d.appendChild(r2);
+          setTimeout(function(){ inp.focus() }, 0);
+        }
+        if (confirmDel === it.name) {
+          var r3 = document.createElement('div'); r3.className = 'row';
+          var b3 = document.createElement('button'); b3.textContent = 'Yes, delete forever'; b3.className = 'danger'; b3.onclick = function(){ A.remove(it.name); confirmDel = null; listKey = '' }; r3.appendChild(b3);
+          var b4 = document.createElement('button'); b4.textContent = 'Cancel'; b4.onclick = function(){ confirmDel = null; listKey = '' }; r3.appendChild(b4);
+          d.appendChild(r3);
+        }
         if (s.play === it.name) { var bar = document.createElement('div'); bar.className = 'bar'; var f = document.createElement('i'); f.id = 'pbar'; bar.appendChild(f); d.appendChild(bar) }
       }
       box.appendChild(d);
