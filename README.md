@@ -2,12 +2,12 @@
 
 Android app that records low-frame-rate video made flat on purpose (few solid colours, hard edges) so it needs very few bits, together with a Codec 2 voice track. Built so the same packets can later be sent over a narrow link such as HF radio. Everything is stored in one `.frv` file; the app can also save a normal `.mp4`.
 
-Current version: 0.2. Version 0.1 was reported working on the owner's phone. The Flip camera button in 0.2 has not been tried on a phone.
+Current version: 0.3. Version 0.1 was reported working on the owner's phone. Not yet tried on a phone: the Flip camera button (0.2) and the timed new colours (0.3).
 
 ## How it works
 
 - Camera2 gives YUV frames at the chosen rate (0.5 to 5 pictures per second).
-- `jni/flat.c` posterizes each frame: edge-preserving smoothing, a colour palette that stays locked between frames, small-region cleanup, and a hold so still areas stay identical.
+- `jni/flat.c` posterizes each frame: edge-preserving smoothing, a colour palette that stays locked between frames (rebuilt when the scene stops fitting it, on the Pick colours now button, or every 5 to 60 s if chosen; each rebuild makes the encoder start a new full picture), small-region cleanup, and a hold so still areas stay identical.
 - `VideoEncoder` uses the phone's own encoder: AV1 if it has one, else HEVC, else H.264.
 - The voice goes through the Codec2 Recorder voice chain (rumble cut, denoise, level control, limiter) and Codec 2 (default 1200 bit/s). Source VOICE_RECOGNITION, as in Codec2 Recorder 2.4.
 - `.frv` format: 14-byte header, then packets (setup, key picture, delta picture, audio), each with its own time and CRC16. A damaged packet costs only itself. Details in `FrvWriter.java`.

@@ -155,6 +155,15 @@ final class VideoEncoder {
         sink.video(FrvWriter.CONFIG, 0, FrvWriter.packConfig(csd.toArray(new byte[0][])));
     }
 
+    /** Asks the encoder to make the next picture a full one. Some encoders ignore this; the next regular key picture then comes as usual. */
+    void requestKeyFrame() {
+        try {
+            android.os.Bundle b = new android.os.Bundle();
+            b.putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0);
+            mc.setParameters(b);
+        } catch (RuntimeException ignored) {}
+    }
+
     /** Flushes the frames still inside the encoder and frees it. */
     void close() {
         try {

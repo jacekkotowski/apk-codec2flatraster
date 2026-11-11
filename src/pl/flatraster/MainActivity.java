@@ -53,7 +53,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
     private DisplayManager.DisplayListener displayListener;
 
     // Settings, set from the controls.
-    private volatile int sizeIdx = 2, colors = 8, smooth = 2, kbps = 5, wantCodec = -1, c2mode = 5;
+    private volatile int sizeIdx = 2, colors = 8, smooth = 2, kbps = 5, wantCodec = -1, c2mode = 5, palSec = 0;
     private volatile double fps = 2;
     private volatile boolean front, portrait = true;
 
@@ -66,6 +66,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
     private VideoEncoder enc;
     private FrvWriter writer;
     private long recStartNs;
+    private long lastPalNs; // when the palette was last built; guarded by lock
     private volatile boolean recording;
     private volatile long frames;
     private AudioCapture audio;
@@ -191,11 +192,17 @@ public class MainActivity extends Activity implements CameraSource.Listener {
                 i420 = new byte[fw * fh * 3 / 2]; argb = new int[fw * fh];
             }
             if (flat == 0) return;
+            // New colours every palSec seconds. The first frame of the new palette is a full key picture, since every colour changes.
+            if (palSec > 0 && lastPalNs != 0 && timeNs - lastPalNs >= palSec * 1_000_000_000L) Flat.reset(flat);
             Image.Plane[] p = img.getPlanes();
             int r = Flat.process(flat, p[0].getBuffer(), p[0].getRowStride(), p[1].getBuffer(), p[2].getBuffer(), p[1].getRowStride(), p[1].getPixelStride(),
                     img.getWidth(), img.getHeight(), rotation, mirror, smooth, HOLD, CLEAN, i420, argb);
             if (r < 0) return;
             cameraOn = true;
+            if (r == 1) { // the palette was just rebuilt, by the timer or because the scene stopped fitting it
+                lastPalNs = timeNs;
+                if (recording && enc != null) enc.requestKeyFrame();
+            }
             if (recording && enc != null) {
                 try { enc.encode(i420, Math.max(0, (timeNs - recStartNs) / 1_000_000)); frames++; }
                 catch (Exception e) { fail = "Recording stopped: " + e.getMessage(); }
@@ -246,6 +253,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             enc = e; frames = 0;
             encoderInfo = FrvWriter.CODEC_NAME[e.codec] + " " + fw + "x" + fh + ", asked " + (e.bitrate / 100 / 10.0) + " kbps (" + e.name + ")";
             recStartNs = start = System.nanoTime();
+            lastPalNs = start;
             recording = true;
             w = writer;
         }
@@ -384,6 +392,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             try {
                 JSONObject o = new JSONObject(json);
                 smooth = Math.max(0, Math.min(6, o.optInt("smooth", smooth)));
+                palSec = Math.max(0, Math.min(600, o.optInt("pal", palSec)));
                 if (recording) return;
                 sizeIdx = Math.max(0, Math.min(SIZES.length - 1, o.optInt("size", sizeIdx)));
                 colors = Math.max(2, Math.min(32, o.optInt("colors", colors)));
@@ -400,7 +409,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             } catch (Exception ignored) {}
         }
 
-        @JavascriptInterface public void newPalette() { synchronized (lock) { if (flat != 0) Flat.reset(flat); } }
+        @JavascriptInterface public void newPalette() { synchronized (lock) { if (flat != 0) Flat.reset(flat); } } // the next frame rebuilds it and asks for a key picture
         @JavascriptInterface public void startRec() { runOnUiThread(MainActivity.this::startRecording); }
         @JavascriptInterface public void stopRec() { runOnUiThread(MainActivity.this::stopRecording); }
         @JavascriptInterface public void play(String name) { runOnUiThread(() -> MainActivity.this.play(name)); }
