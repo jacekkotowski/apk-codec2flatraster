@@ -33,6 +33,9 @@ void flat_mark_sent(Flat *f);
    boxes that applies to the whole picture. Call before loading a frame. */
 void flat_set_focus(Flat *f, const int *rects, int count, int coarse);
 
+/* Border rounding: 0 off, 1 or 2 passes of a 5x5 most-common-colour filter after everything else. */
+void flat_set_round(Flat *f, int passes);
+
 /* Forces a new palette on the next flat_run. */
 void flat_reset(Flat *f);
 

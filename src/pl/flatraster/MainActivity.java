@@ -56,7 +56,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
     private DisplayManager.DisplayListener displayListener;
 
     // Settings, set from the controls.
-    private volatile int sizeIdx = 2, colors = 8, smooth = 2, kbps = 5, wantCodec = -1, c2mode = 5, palSec = 0, keySec = 10, cleanLvl = 1, ignoreLvl = 0, stillLvl = 0, focusLvl = 0, faceCount = 0;
+    private volatile int sizeIdx = 2, colors = 8, smooth = 2, kbps = 5, wantCodec = -1, c2mode = 5, palSec = 0, keySec = 10, cleanLvl = 1, ignoreLvl = 0, stillLvl = 0, focusLvl = 0, faceCount = 0, roundLvl = 1;
     private volatile double fps = 2;
     private volatile boolean front, portrait = true, skipSilence, lockLight;
 
@@ -200,6 +200,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             // Faces: full colours inside the boxes, fewer colours everywhere else.
             int focus = focusLvl, nFaces = focus > 0 && faces != null ? faces.length / 4 : 0;
             Flat.setFocus(flat, faces, nFaces, focus);
+            Flat.setRound(flat, roundLvl);
             faceCount = nFaces;
             Image.Plane[] p = img.getPlanes();
             int r = Flat.process(flat, p[0].getBuffer(), p[0].getRowStride(), p[1].getBuffer(), p[2].getBuffer(), p[1].getRowStride(), p[1].getPixelStride(),
@@ -413,6 +414,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
                 ignoreLvl = Math.max(0, Math.min(3, o.optInt("ignore", ignoreLvl)));
                 stillLvl = Math.max(0, Math.min(3, o.optInt("still", stillLvl)));
                 focusLvl = Math.max(0, Math.min(2, o.optInt("focus", focusLvl)));
+                roundLvl = Math.max(0, Math.min(2, o.optInt("round", roundLvl)));
                 if (recording) return;
                 sizeIdx = Math.max(0, Math.min(SIZES.length - 1, o.optInt("size", sizeIdx)));
                 colors = Math.max(2, Math.min(32, o.optInt("colors", colors)));

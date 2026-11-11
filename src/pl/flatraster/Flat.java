@@ -14,6 +14,8 @@ final class Flat {
     /** Pixels that differ from the last picture marked as sent. */
     static native int changed(long h);
     static native void markSent(long h);
+    /** Border rounding passes, 0..2. */
+    static native void setRound(long h, int passes);
     /** Up to 4 boxes of x0,y0,x1,y1 in camera-frame pixels. coarse 1 or 2 gives everything outside them a half or a quarter of the colours; 0 switches it off. */
     static native void setFocus(long h, int[] rects, int count, int coarse);
 }
