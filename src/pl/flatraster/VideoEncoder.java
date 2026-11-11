@@ -53,9 +53,10 @@ final class VideoEncoder {
 
     /**
      * wanted: FrvWriter codec number, or -1 for the best available. fps may be below 1.
+     * keySeconds: how often a full picture is made; longer is smaller, but a lost packet hurts for longer.
      * Throws IllegalStateException with a plain message if no encoder on the phone can do it.
      */
-    VideoEncoder(int wanted, int w, int h, double fps, int bitsPerSecond, Sink sink) {
+    VideoEncoder(int wanted, int w, int h, double fps, int bitsPerSecond, int keySeconds, Sink sink) {
         this.w = w; this.h = h; this.sink = sink;
         declFps = Math.max(1, (int) Math.round(fps));
         int[] order = wanted >= 0 ? new int[]{wanted} : new int[]{FrvWriter.AV1, FrvWriter.HEVC, FrvWriter.AVC};
@@ -72,7 +73,8 @@ final class VideoEncoder {
                     f.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible);
                     f.setInteger(MediaFormat.KEY_BIT_RATE, rate);
                     f.setInteger(MediaFormat.KEY_FRAME_RATE, declFps);
-                    f.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 10);
+                    // The encoder counts the interval in declared frames, so convert real seconds the same way as the bitrate.
+                    f.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, Math.max(1, (int) Math.round(keySeconds * fps / declFps)));
                     f.setInteger(MediaFormat.KEY_COLOR_RANGE, MediaFormat.COLOR_RANGE_LIMITED);
                     f.setInteger(MediaFormat.KEY_COLOR_STANDARD, MediaFormat.COLOR_STANDARD_BT601_NTSC);
                     f.setInteger(MediaFormat.KEY_COLOR_TRANSFER, MediaFormat.COLOR_TRANSFER_SDR_VIDEO);

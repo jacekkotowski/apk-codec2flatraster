@@ -43,7 +43,8 @@ public class MainActivity extends Activity implements CameraSource.Listener {
     private static final int BG = 0xff1b2430, REQ_PERM = 1;
     /** Landscape picture sizes; portrait swaps them. All even, as the filter and encoders need. */
     static final int[][] SIZES = {{160, 120}, {240, 176}, {320, 240}, {480, 360}};
-    private static final int HOLD = 12, CLEAN = 1;
+    /** Clean-up levels 1..3: how far a pixel may drift before it is relabelled, and majority-filter passes. */
+    private static final int[] HOLD = {12, 18, 26};
 
     private WebView web;
     private ImageView preview;
@@ -53,9 +54,9 @@ public class MainActivity extends Activity implements CameraSource.Listener {
     private DisplayManager.DisplayListener displayListener;
 
     // Settings, set from the controls.
-    private volatile int sizeIdx = 2, colors = 8, smooth = 2, kbps = 5, wantCodec = -1, c2mode = 5, palSec = 0;
+    private volatile int sizeIdx = 2, colors = 8, smooth = 2, kbps = 5, wantCodec = -1, c2mode = 5, palSec = 0, keySec = 10, cleanLvl = 1;
     private volatile double fps = 2;
-    private volatile boolean front, portrait = true;
+    private volatile boolean front, portrait = true, skipSilence;
 
     // Filter and recording state, guarded by lock.
     private final Object lock = new Object();
@@ -196,7 +197,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             if (palSec > 0 && lastPalNs != 0 && timeNs - lastPalNs >= palSec * 1_000_000_000L) Flat.reset(flat);
             Image.Plane[] p = img.getPlanes();
             int r = Flat.process(flat, p[0].getBuffer(), p[0].getRowStride(), p[1].getBuffer(), p[2].getBuffer(), p[1].getRowStride(), p[1].getPixelStride(),
-                    img.getWidth(), img.getHeight(), rotation, mirror, smooth, HOLD, CLEAN, i420, argb);
+                    img.getWidth(), img.getHeight(), rotation, mirror, smooth, HOLD[cleanLvl - 1], cleanLvl, i420, argb);
             if (r < 0) return;
             cameraOn = true;
             if (r == 1) { // the palette was just rebuilt, by the timer or because the scene stopped fitting it
@@ -242,7 +243,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             VideoEncoder e = null;
             try {
                 // The sink reads `writer` when a packet comes out, which is always after it is set below.
-                e = new VideoEncoder(wantCodec, fw, fh, fps, kbps * 1000, (type, t, d) -> { FrvWriter fw2 = writer; if (fw2 != null) fw2.write(type, t, d, 0, d.length); });
+                e = new VideoEncoder(wantCodec, fw, fh, fps, kbps * 1000, keySec, (type, t, d) -> { FrvWriter fw2 = writer; if (fw2 != null) fw2.write(type, t, d, 0, d.length); });
                 writer = new FrvWriter(f, e.codec, fw, fh, c2mode);
             } catch (Exception ex) {
                 if (e != null) e.close();
@@ -257,7 +258,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             recording = true;
             w = writer;
         }
-        audio = new AudioCapture(c2mode, start, (t, d, len) -> w.write(FrvWriter.AUDIO, t, d, 0, len));
+        audio = new AudioCapture(c2mode, start, skipSilence, (t, d, len) -> w.write(FrvWriter.AUDIO, t, d, 0, len));
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LOCKED);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
@@ -355,7 +356,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
                     double sec = Math.max(0.001, (System.nanoTime() - recStartNs) / 1e9);
                     o.put("ms", (long) (sec * 1000)).put("bytes", wr.bytes).put("frames", frames)
                             .put("vbps", wr.videoBytes * 8 / sec).put("abps", wr.audioBytes * 8 / sec)
-                            .put("level", a == null ? 0 : a.level).put("overload", a != null && a.overload);
+                            .put("level", a == null ? 0 : a.level).put("overload", a != null && a.overload).put("quiet", a != null && a.quiet);
                     if (a != null) a.overload = false;
                 }
                 Player p = player;
@@ -393,10 +394,13 @@ public class MainActivity extends Activity implements CameraSource.Listener {
                 JSONObject o = new JSONObject(json);
                 smooth = Math.max(0, Math.min(6, o.optInt("smooth", smooth)));
                 palSec = Math.max(0, Math.min(600, o.optInt("pal", palSec)));
+                cleanLvl = Math.max(1, Math.min(3, o.optInt("clean", cleanLvl)));
                 if (recording) return;
                 sizeIdx = Math.max(0, Math.min(SIZES.length - 1, o.optInt("size", sizeIdx)));
                 colors = Math.max(2, Math.min(32, o.optInt("colors", colors)));
                 kbps = Math.max(1, Math.min(1000, o.optInt("kbps", kbps)));
+                keySec = Math.max(1, Math.min(600, o.optInt("key", keySec)));
+                skipSilence = o.optBoolean("skip", skipSilence);
                 wantCodec = Math.max(-1, Math.min(FrvWriter.MIME.length - 1, o.optInt("codec", wantCodec)));
                 int m = VoiceBridge.modeOf(o.optString("voice", ""));
                 if (m >= 0) c2mode = m;

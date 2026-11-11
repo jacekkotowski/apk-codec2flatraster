@@ -8,6 +8,8 @@ public final class VoiceBridge {
     private long h;
     private final VoiceChain chain;
     public final int samples, bytes, frameMs, mode;
+    /** True while the last encoded frame held speech (with about a second of hold after it). */
+    public boolean voice = true;
 
     /** encoder=false makes a decoder only. Throws if the codec does not start. */
     public VoiceBridge(int mode, boolean encoder, boolean denoise) {
@@ -21,7 +23,7 @@ public final class VoiceBridge {
 
     /** Runs the voice chain on one frame in place with automatic level, then encodes it. Returns the level, 0..1. */
     public float encode(short[] pcm, byte[] out) {
-        chain.process(pcm, -100, 5, 1);
+        voice = chain.process(pcm, -100, 5, 1); // sensitivity 5 and 1 s hold: RecService's defaults
         C2.encode(h, pcm, out);
         return (float) chain.level;
     }
