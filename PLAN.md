@@ -1,6 +1,6 @@
 # FlatRaster plan
 
-Last updated: 2026-11-11
+Last updated: 2026-11-14
 
 ## Status
 
@@ -54,6 +54,10 @@ Kept out so far by choice (no AI in the app). Notes for when that changes:
 - First checks: can the runtime be linked without Gradle; speed and battery on the owner's phone at 1 to 5 pictures per second; how steady the points are in poor light.
 - **Person segmentation** (a model that marks which pixels are a person): a cut-out of the person instead of a box, for the same "sharp person, coarse rest" idea.
 - **Learned video codecs and face re-animation** (send one photo, then only face points, and redraw the face at the receiver): lowest bitrates known for talking heads, but heavy for a phone and able to invent details that were not there. Only worth a look after the puppet stream.
+
+## Voice track: DRED replaces Codec 2
+
+Plan for a new session: [PLAN-dred.md](PLAN-dred.md). Codec 2 goes out completely; old `.frv` files with Codec 2 voice need not play (owner, 2026-11-14). Everything except the `.frv` parts is copied from Codec2 Recorder 2.7.
 
 ## Radio
 
