@@ -5,7 +5,7 @@ import android.media.AudioRecord;
 import android.media.MediaRecorder;
 import pl.dyktafon.VoiceBridge;
 
-/** Microphone -> Codec2 Recorder voice chain -> Codec 2, in packets of about one second. Capture settings mirror RecService. */
+/** Microphone -> Codec2 Recorder voice chain -> DRED, one packet per one-second block (VoicePackets). Capture settings mirror RecService. */
 final class AudioCapture {
     interface Sink { void audio(long timeMs, byte[] data, int len) throws java.io.IOException; }
 
@@ -17,51 +17,32 @@ final class AudioCapture {
 
     /** startNs: System.nanoTime() at the start of the recording, so sound and picture share one clock. */
     /** skipSilence: store nothing while nobody speaks; 400 ms before each start of speech is kept, as in Codec2 Recorder. */
-    AudioCapture(final int mode, final long startNs, final boolean skipSilence, final Sink sink) {
-        thread = new Thread(() -> loop(mode, startNs, skipSilence, sink), "audio");
+    AudioCapture(final int q, final long startNs, final boolean skipSilence, final Sink sink) {
+        thread = VoiceBridge.thread(() -> loop(q, startNs, skipSilence, sink), "audio");
         thread.start();
     }
 
-    private void loop(int mode, long startNs, boolean skip, Sink sink) {
+    private void loop(int q, long startNs, boolean skip, Sink sink) {
         VoiceBridge vb = null; AudioRecord rec = null;
         try {
-            vb = new VoiceBridge(mode, true, false);
-            int n = vb.samples, nb = vb.bytes;
-            int min = AudioRecord.getMinBufferSize(8000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
-            rec = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, 8000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, Math.max(min, 16000));
+            vb = new VoiceBridge(q, false);
+            final int n = VoiceBridge.CHUNK, fs = VoiceBridge.FS;
+            int min = AudioRecord.getMinBufferSize(fs, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+            rec = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, fs, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, Math.max(min, 2 * fs));
             if (rec.getState() != AudioRecord.STATE_INITIALIZED) throw new IllegalStateException("the microphone did not start");
             rec.startRecording();
             long offsetMs = Math.max(0, (System.nanoTime() - startNs) / 1_000_000); // the microphone opens a little after the camera
-            short[] pcm = new short[n]; byte[] bits = new byte[nb];
-            int group = Math.max(1, 1000 / vb.frameMs), have = 0; byte[] pack = new byte[group * nb];
-            long frames = 0, packStart = 0;
-            // Encoded frames from the last 400 ms of silence, so the start of a word is not cut. Always fewer than one packet.
-            int preN = Math.max(1, 400 / vb.frameMs), preW = 0, preC = 0; byte[][] pre = new byte[preN][nb];
-            boolean wasOpen = false;
+            VoicePackets vp = new VoicePackets(vb, skip, offsetMs, sink::audio);
+            short[] pcm = new short[n];
             while (running) {
                 int got = 0;
                 while (got < n && running) { int r = rec.read(pcm, got, n - got); if (r < 0) throw new IllegalStateException("read error " + r); got += r; }
                 if (got < n) break;
-                level = vb.encode(pcm, bits);
+                level = vp.chunk(pcm);
                 if (vb.micOverload()) overload = true;
-                boolean open = !skip || vb.voice;
-                quiet = !open;
-                if (open) {
-                    if (!wasOpen && preC > 0) { // `have` is 0 here: the packet was flushed when speech stopped
-                        packStart = offsetMs + (frames - preC) * vb.frameMs;
-                        for (int k = preC; k > 0; k--) { System.arraycopy(pre[(preW - k + preN) % preN], 0, pack, have * nb, nb); have++; }
-                        preC = 0;
-                    }
-                    if (have == 0) packStart = offsetMs + frames * vb.frameMs;
-                    System.arraycopy(bits, 0, pack, have * nb, nb); have++;
-                    if (have == group) { sink.audio(packStart, pack, have * nb); have = 0; }
-                } else {
-                    if (have > 0) { sink.audio(packStart, pack, have * nb); have = 0; }
-                    System.arraycopy(bits, 0, pre[preW], 0, nb); preW = (preW + 1) % preN; if (preC < preN) preC++;
-                }
-                wasOpen = open; frames++;
+                quiet = vp.quiet;
             }
-            if (have > 0) sink.audio(packStart, pack, have * nb);
+            vp.finish();
         } catch (Exception e) {
             error = "Sound recording stopped: " + e.getMessage();
         } finally {

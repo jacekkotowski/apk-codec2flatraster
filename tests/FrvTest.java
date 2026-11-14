@@ -13,7 +13,7 @@ public class FrvTest {
 
         Random r = new Random(3);
         ByteArrayOutputStream bo = new ByteArrayOutputStream();
-        FrvWriter w = new FrvWriter(bo, FrvWriter.AV1, 320, 240, 5);
+        FrvWriter w = new FrvWriter(bo, FrvWriter.AV1, 320, 240, FrvReader.BITSTREAM, 9);
         byte[][] csd = {{1, 2, 3}, {}, {9}};
         byte[] cfg = FrvWriter.packConfig(csd);
         w.write(FrvWriter.CONFIG, 0, cfg, 0, cfg.length);
@@ -30,7 +30,7 @@ public class FrvTest {
         check(w.bytes == file.length, "writer's byte count equals the file size");
 
         FrvReader rd = new FrvReader(file);
-        check(rd.codec == FrvWriter.AV1 && rd.width == 320 && rd.height == 240 && rd.c2mode == 5, "header round trip");
+        check(rd.codec == FrvWriter.AV1 && rd.width == 320 && rd.height == 240 && rd.bitstream == 12 && rd.q == 9, "header round trip");
         check(rd.packets.size() == n + 1 && rd.skippedBytes == 0, "all packets read back, nothing skipped");
         boolean same = true;
         for (int i = 0; i < n; i++) { FrvReader.Packet p = rd.packets.get(i + 1); same &= p.type == types[i] && p.timeMs == times[i] && java.util.Arrays.equals(p.data, sent[i]); }
@@ -61,6 +61,15 @@ public class FrvTest {
         boolean threw = false;
         try { new FrvReader(new byte[]{'F', 'R', 'V', '1', 1, 0, 0, 0, 0, 0, 0, 0, 0, 0}); } catch (java.io.IOException e) { threw = true; }
         check(threw, "damaged header is refused");
+
+        // Headers with a good CRC that the app must still refuse, each with a sentence.
+        String[][] cases = {{"1", "12", "Codec 2"}, {"3", "12", "newer version"}, {"2", "13", "different version of DRED"}};
+        for (String[] c : cases) {
+            byte[] h = {'F', 'R', 'V', '1', (byte) Integer.parseInt(c[0]), 2, 1, 64, 0, (byte) 240, (byte) Integer.parseInt(c[1]), 9, 0, 0};
+            int k = FrvWriter.crc16(h, 0, 12); h[12] = (byte) (k >> 8); h[13] = (byte) k;
+            String msg = null; try { new FrvReader(h); } catch (java.io.IOException e) { msg = e.getMessage(); }
+            check(msg != null && msg.contains(c[2]), "version " + c[0] + ", bitstream " + c[1] + " refused: " + msg);
+        }
 
         System.out.println(fails == 0 ? "all checks passed" : "FAILED");
         System.exit(fails == 0 ? 0 : 1);

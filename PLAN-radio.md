@@ -1,6 +1,8 @@
 # FlatRaster over radio: plan for a new session
 
-Written 2026-11-11, at FlatRaster 0.12. Nothing in this file is built yet. Speeds and sizes marked "from memory" are not checked and must be measured or looked up first.
+Written 2026-11-11, at FlatRaster 0.12. Nothing in this file is built yet.
+
+**Update 2026-11-14 (0.13):** the voice in `.frv` is now DRED, not Codec 2: about 610 bit/s with packet headers at the default level instead of about 1300, so a 30 s recording is about 2.6 kB smaller. `third_party/codec2` is gone. Don't fetch upstream Codec 2: Codec2 Recorder already has the FreeDV modem library (`third_party/codec2-1.2`, `fdvflags.sh`, `app/jni/fdvjni.c`) with file sending and repair frames (`Fountain`, `RadioLink`), built and measured through simulated channels. Copy from there. Parts of this file that talk about Codec 2 voice or the old `third_party/codec2` are out of date. Speeds and sizes marked "from memory" are not checked and must be measured or looked up first.
 
 ## Goal
 

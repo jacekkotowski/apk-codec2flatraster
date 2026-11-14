@@ -11,7 +11,7 @@ import java.util.ArrayList;
 import java.util.List;
 import pl.dyktafon.VoiceBridge;
 
-/** Turns a .frv into an ordinary .mp4: the video is copied as it is, the Codec 2 voice is decoded and stored as AAC. */
+/** Turns a .frv into an ordinary .mp4: the video is copied as it is, the DRED voice is decoded and stored as AAC at 16 kHz. */
 final class Mp4Export {
     private static final class Sample { byte[] data; long us; int flags; }
 
@@ -57,30 +57,24 @@ final class Mp4Export {
 
     /** Decodes the voice, fills gaps with silence so it stays in step with the picture, and encodes AAC. Returns the track format. */
     private static MediaFormat encodeAac(FrvReader r, List<FrvReader.Packet> packets, List<Sample> out) throws Exception {
-        VoiceBridge vb = new VoiceBridge(r.c2mode, false, false);
+        VoiceBridge.Decoder vb = new VoiceBridge.Decoder();
         MediaCodec enc = MediaCodec.createEncoderByType("audio/mp4a-latm");
         MediaFormat result = null;
         try {
-            MediaFormat f = MediaFormat.createAudioFormat("audio/mp4a-latm", 8000, 1);
+            MediaFormat f = MediaFormat.createAudioFormat("audio/mp4a-latm", AudioPlan.FS, 1); // the phone's AAC encoder took 8 kHz in 0.12; 16 kHz is a standard AAC rate too
             f.setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC);
-            f.setInteger(MediaFormat.KEY_BIT_RATE, 16000);
+            f.setInteger(MediaFormat.KEY_BIT_RATE, 24000);
             f.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16384);
             enc.configure(f, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
             enc.start();
-            // All PCM first: recordings are short and 8 kHz mono is small (about 1 MB per minute).
+            // All PCM first: recordings are short and 16 kHz mono is about 2 MB per minute. Gaps are silence, as the player plays them.
             java.io.ByteArrayOutputStream pcmOut = new java.io.ByteArrayOutputStream();
-            short[] pcm = new short[vb.samples]; byte[] bits = new byte[vb.bytes]; byte[] le = new byte[vb.samples * 2];
-            long samples = 0;
-            for (FrvReader.Packet p : packets) {
-                if (p.type != FrvWriter.AUDIO) continue;
-                long want = p.timeMs * 8; // sample position this packet starts at
-                if (want - samples > 800) { pcmOut.write(new byte[(int) Math.min((want - samples) * 2, 8000 * 2 * 600)]); samples = want; }
-                for (int o = 0; o + bits.length <= p.data.length; o += bits.length) {
-                    System.arraycopy(p.data, o, bits, 0, bits.length);
-                    vb.decode(bits, pcm);
-                    ByteBuffer.wrap(le).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().put(pcm);
-                    pcmOut.write(le); samples += pcm.length;
-                }
+            byte[] le = new byte[AudioPlan.BLOCK * 2];
+            for (AudioPlan.Item it : AudioPlan.of(packets)) {
+                for (long left = it.silence * 2; left > 0; ) { int k = (int) Math.min(le.length, left); pcmOut.write(new byte[k]); left -= k; }
+                int m = Math.min(it.samples, vb.block(it.block, it.block.length));
+                ByteBuffer.wrap(le).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().put(vb.pcm, 0, m);
+                pcmOut.write(le, 0, m * 2);
             }
             byte[] all = pcmOut.toByteArray();
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
@@ -92,7 +86,7 @@ final class Mp4Export {
                         ByteBuffer b = enc.getInputBuffer(in); b.clear();
                         int n = Math.min(b.remaining() & ~1, all.length - pos);
                         b.put(all, pos, n);
-                        long us = (pos / 2) * 1_000_000L / 8000;
+                        long us = (pos / 2) * 1_000_000L / AudioPlan.FS;
                         pos += n; inDone = pos >= all.length;
                         enc.queueInputBuffer(in, 0, n, us, inDone ? MediaCodec.BUFFER_FLAG_END_OF_STREAM : 0);
                     }

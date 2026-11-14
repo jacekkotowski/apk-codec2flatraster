@@ -67,7 +67,7 @@ button.danger{background:var(--rec);border-color:var(--rec);color:#fff}
    <label>Video format<select id="codec"><option value="-1">Best available</option><option value="2">AV1</option><option value="1">HEVC</option><option value="0">H.264</option></select></label>
    <label>Full picture every<select id="key"><option value="10">10 s</option><option value="30">30 s</option><option value="60">1 min</option><option value="120">2 min</option></select></label>
    <label>Silence<select id="skip"><option value="0">Record</option><option value="1">Skip</option></select></label>
-   <label>Voice (Codec 2 bit/s)<select id="voice"></select></label>
+   <label>Voice<select id="voice"></select></label>
    <label>Camera<select id="front"><option value="0">Back</option><option value="1">Front</option></select></label>
   </div>
  </div>
@@ -75,13 +75,15 @@ button.danger{background:var(--rec);border-color:var(--rec);color:#fff}
 </div>
 <script>
 // Outside the app (a desktop browser) a stand-in bridge keeps the page usable for layout checks.
-var A = window.Android || {status:function(){return '{"camera":true,"avail":"0,1"}'},list:function(){return '[]'},voiceModes:function(){return '["3200","2400","1600","1400","1300","1200","700C","450"]'},config:function(){},newPalette:function(){},startRec:function(){},stopRec:function(){},play:function(){},stopPlay:function(){},mp4:function(){},remove:function(){},rename:function(){return true},share:function(){}};
+var A = window.Android || {status:function(){return '{"camera":true,"avail":"0,1"}'},list:function(){return '[]'},voiceModes:function(){return '["best","balanced","small","smallest"]'},config:function(){},newPalette:function(){},startRec:function(){},stopRec:function(){},play:function(){},stopPlay:function(){},mp4:function(){},remove:function(){},rename:function(){return true},share:function(){}};
 var $ = function(id){return document.getElementById(id)};
 var ids = ['fps','size','colors','smooth','pal','thr','clean','round','lock','focus','ignore','still','kbps','key','skip','codec','voice','front'];
-var defaults = {fps:'2',size:'2',colors:'8',smooth:'2',pal:'0',thr:'16',clean:'1',round:'1',lock:'0',focus:'0',ignore:'0',still:'0',kbps:'5',key:'10',skip:'0',codec:'-1',voice:'1200',front:'0'};
+var defaults = {fps:'2',size:'2',colors:'8',smooth:'2',pal:'0',thr:'16',clean:'1',round:'1',lock:'0',focus:'0',ignore:'0',still:'0',kbps:'5',key:'10',skip:'0',codec:'-1',voice:'small',front:'0'};
 var rec = false, listKey = '', msgUntil = 0, renaming = null, renameText = null, confirmDel = null;
 
-JSON.parse(A.voiceModes()).forEach(function(m){var o=document.createElement('option');o.textContent=m;$('voice').appendChild(o)});
+// DRED levels and their voice bitrate with packet headers, about, measured on a computer. A Codec 2 mode stored by 0.12 falls back to the default.
+var VBPS = {best:1430, balanced:900, small:610, smallest:390};
+JSON.parse(A.voiceModes()).forEach(function(m){var o=document.createElement('option');o.value=m;o.textContent='DRED '+m+(VBPS[m]?', about '+VBPS[m]+' bit/s':'');$('voice').appendChild(o)});
 var saved = {}; try { saved = JSON.parse(localStorage.getItem('set') || '{}') } catch (e) {}
 ids.forEach(function(id){ $(id).value = saved[id] != null ? saved[id] : defaults[id]; if ($(id).selectedIndex < 0) $(id).value = defaults[id]; $(id).onchange = push; });
 

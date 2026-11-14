@@ -8,14 +8,19 @@ S=${ANDROID_SDK_ROOT:?Set ANDROID_SDK_ROOT to your Android SDK}
 . ./signing.env
 BT=$S/build-tools/36.0.0; J=$S/platforms/android-36/android.jar; NDK=${ANDROID_NDK_ROOT:-$S/android-ndk-r28c}; O=out; rm -rf $O; mkdir -p $O/classes $O/res
 TC=$(echo $NDK/toolchains/llvm/prebuilt/*/bin)
-C=third_party/codec2/src; H=third_party/codec2/generated
+. ./opusflags.sh
 FLAGS="-O2 -fPIC -shared -DNDEBUG -Wl,-z,max-page-size=16384 -Wl,--no-undefined"
+# Each processor type builds in parallel; the logs are printed after.
 for pair in "arm64-v8a aarch64-linux-android29" "armeabi-v7a armv7a-linux-androideabi29" "x86_64 x86_64-linux-android29"; do set -- $pair; mkdir -p $O/lib/$1
- # Codec 2 with its JNI file (bound to pl.dyktafon.C2).
- $TC/clang --target=$2 $FLAGS -I$C -I$H -o $O/lib/$1/libc2.so jni/c2jni.c $C/*.c $H/*.c -lm -llog 2>&1 | grep -E "error|undefined" | head -8 || true
+ (
+ # DRED coder and player (Opus 1.6.1, flags in opusflags.sh), with its JNI file (bound to pl.dyktafon.DredLib).
+ $TC/clang --target=$2 $OPUSFLAGS -DNDEBUG -fPIC -shared -fvisibility=hidden -Wl,-z,max-page-size=16384 -Wl,--no-undefined -o $O/lib/$1/libdred.so jni/dredjni.c $OPUSSRCS -lm -llog 2>&1 | grep -E "error|undefined" | head -8
  $TC/clang --target=$2 $FLAGS -Wall -o $O/lib/$1/libflat.so jni/flatjni.c jni/flat.c -lm
- $TC/llvm-strip --strip-unneeded $O/lib/$1/libc2.so $O/lib/$1/libflat.so
+ $TC/llvm-strip --strip-unneeded $O/lib/$1/libdred.so $O/lib/$1/libflat.so
+ ) > $O/lib-$1.log 2>&1 &
 done
+wait; cat $O/lib-*.log
+for a in arm64-v8a armeabi-v7a x86_64; do for l in dred flat; do [ -f $O/lib/$a/lib$l.so ] || { echo "lib$l.so for $a did not build"; exit 1; }; done; done
 $BT/aapt2 compile --dir res -o $O/res/res.zip
 $BT/aapt2 link -o $O/base.apk -I $J --manifest AndroidManifest.xml --min-sdk-version 29 --target-sdk-version 36 -A assets $O/res/res.zip
 javac -nowarn --release 11 -classpath $J -d $O/classes src/pl/flatraster/*.java src/pl/dyktafon/*.java 2>&1 | grep -v "^Picked up\|^Note" || true

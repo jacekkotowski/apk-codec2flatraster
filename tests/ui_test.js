@@ -14,7 +14,7 @@ const { chromium } = require('playwright');
       window.Android = { calls: [],
         status: () => JSON.stringify(stub === 'rec' ? {rec:true,camera:true,avail:'0,2',w:240,h:320,ms:83000,bytes:18200,frames:166,vbps:4870,abps:1296,level:0.9,overload:false,encoder:'AV1 240x320, asked 5 kbps (c2.android.av1.encoder)'} : {camera:true,avail:'0,2',w:320,h:240,play:'2026-11-10_18-02-11.frv',pos:12000,dur:31000,notice:'Saved to Movies/FlatRaster/x.mp4'}),
         list: () => JSON.stringify(stub === 'rec' ? files : files.slice(1)),
-        voiceModes: () => '["3200","2400","1600","1400","1300","1200","700C","450"]',
+        voiceModes: () => '["best","balanced","small","smallest"]',
         config: (j) => window.Android.calls.push(j), newPalette(){}, startRec(){}, stopRec(){}, play(){}, stopPlay(){}, mp4(){}, remove(){}, rename(){return true}, share(){} };
     }, stub);
     await p.goto('file://' + process.argv[2]);
@@ -38,7 +38,7 @@ const { chromium } = require('playwright');
     await p.addInitScript(() => {
       window.calls = [];
       window.Android = { status: () => '{"camera":true,"avail":"0"}', list: () => '[{"name":"a.frv","size":100,"time":1,"ms":1000,"codec":"AV1"}]',
-        voiceModes: () => '["1200"]', config(){}, newPalette(){}, startRec(){}, stopRec(){}, play(){}, stopPlay(){}, mp4(){}, share(){},
+        voiceModes: () => '["best","balanced","small","smallest"]', config(){}, newPalette(){}, startRec(){}, stopRec(){}, play(){}, stopPlay(){}, mp4(){}, share(){},
         remove: (n) => { window.calls.push('remove:' + n) }, rename: (n, to) => { window.calls.push('rename:' + n + '>' + to); return to !== 'bad' } };
     });
     await p.goto('file://' + process.argv[2]);
@@ -54,6 +54,23 @@ const { chromium } = require('playwright');
     if (calls !== want) errors.push('edit: expected "' + want + '", got "' + calls + '"');
     if (!refused) errors.push('edit: a refused name showed no message');
     await p.screenshot({ path: process.argv[3] + '/ui_edit.png' });
+    await p.close();
+  }
+  // Voice: DRED levels, default small, and a Codec 2 mode stored by 0.12 falls back to small.
+  for (const stored of [null, '1200', 'smallest']) {
+    const p = await b.newPage({ viewport: { width: 412, height: 700 } });
+    p.on('pageerror', e => errors.push('voice: ' + e.message));
+    await p.addInitScript((st) => {
+      window.calls = [];
+      if (st) localStorage.setItem('set', JSON.stringify({ voice: st }));
+      window.Android = { status: () => '{"camera":true,"avail":"0"}', list: () => '[]', voiceModes: () => '["best","balanced","small","smallest"]',
+        config: (c) => window.calls.push(JSON.parse(c).voice), newPalette(){}, startRec(){}, stopRec(){}, play(){}, stopPlay(){}, mp4(){}, share(){}, remove(){}, rename(){ return true } };
+    }, stored);
+    await p.goto('file://' + process.argv[2]); await p.waitForTimeout(300);
+    const v = await p.evaluate(() => ({ value: document.getElementById('voice').value, text: document.getElementById('voice').selectedOptions[0].textContent, n: document.getElementById('voice').options.length }));
+    const want = stored === 'smallest' ? 'smallest' : 'small';
+    console.log('voice', stored, JSON.stringify(v));
+    if (v.value !== want || v.n !== 4 || !v.text.startsWith('DRED ' + want)) errors.push('voice: stored ' + stored + ' gave ' + JSON.stringify(v));
     await p.close();
   }
   console.log('errors:', JSON.stringify(errors));

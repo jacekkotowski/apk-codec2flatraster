@@ -8,11 +8,12 @@ out/
 *.idsig
 *.class
 tests/**/pl/
-tests/t4/rt
-tests/c2test
 # test output
 *.raw
 *.wav
 *.log
 *.png
 __pycache__/
+tests/dred/obj/
+tests/dred/out/
+tests/dred/dredtest

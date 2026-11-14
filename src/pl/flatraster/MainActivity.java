@@ -56,7 +56,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
     private DisplayManager.DisplayListener displayListener;
 
     // Settings, set from the controls.
-    private volatile int sizeIdx = 2, colors = 8, smooth = 2, kbps = 5, wantCodec = -1, c2mode = 5, palSec = 0, keySec = 10, cleanLvl = 1, ignoreLvl = 0, stillLvl = 0, focusLvl = 0, faceCount = 0, roundLvl = 1, trackThr = 16;
+    private volatile int sizeIdx = 2, colors = 8, smooth = 2, kbps = 5, wantCodec = -1, voiceQ = VoiceBridge.DEFAULT_Q, palSec = 0, keySec = 10, cleanLvl = 1, ignoreLvl = 0, stillLvl = 0, focusLvl = 0, faceCount = 0, roundLvl = 1, trackThr = 16;
     private volatile double fps = 2;
     private volatile boolean front, portrait = true, skipSilence, lockLight;
 
@@ -257,7 +257,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             try {
                 // The sink reads `writer` when a packet comes out, which is always after it is set below.
                 e = new VideoEncoder(wantCodec, fw, fh, fps, kbps * 1000, keySec, (type, t, d) -> { FrvWriter fw2 = writer; if (fw2 != null) fw2.write(type, t, d, 0, d.length); });
-                writer = new FrvWriter(f, e.codec, fw, fh, c2mode);
+                writer = new FrvWriter(f, e.codec, fw, fh, VoiceBridge.bitstream(), voiceQ);
             } catch (Exception ex) {
                 if (e != null) e.close();
                 writer = null; f.delete();
@@ -272,7 +272,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             w = writer;
         }
         if (lockLight && camera != null) camera.setLock(true);
-        audio = new AudioCapture(c2mode, start, skipSilence, (t, d, len) -> w.write(FrvWriter.AUDIO, t, d, 0, len));
+        audio = new AudioCapture(voiceQ, start, skipSilence, (t, d, len) -> w.write(FrvWriter.AUDIO, t, d, 0, len));
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LOCKED);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
@@ -403,7 +403,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             return arr.toString();
         }
 
-        @JavascriptInterface public String voiceModes() { return new JSONArray(Arrays.asList(VoiceBridge.modeNames())).toString(); }
+        @JavascriptInterface public String voiceModes() { return new JSONArray(Arrays.asList(VoiceBridge.levelNames())).toString(); }
 
         /** Settings from the controls. Size, colours, format and voice mode wait until a recording has ended. */
         @JavascriptInterface public void config(String json) {
@@ -425,8 +425,8 @@ public class MainActivity extends Activity implements CameraSource.Listener {
                 skipSilence = o.optBoolean("skip", skipSilence);
                 lockLight = o.optBoolean("lock", lockLight);
                 wantCodec = Math.max(-1, Math.min(FrvWriter.MIME.length - 1, o.optInt("codec", wantCodec)));
-                int m = VoiceBridge.modeOf(o.optString("voice", ""));
-                if (m >= 0) c2mode = m;
+                int m = VoiceBridge.levelOf(o.optString("voice", ""));
+                if (m >= 0) voiceQ = m;
                 fps = Math.max(0.2, Math.min(15, o.optDouble("fps", fps)));
                 final boolean f = o.optBoolean("front", front);
                 runOnUiThread(() -> {

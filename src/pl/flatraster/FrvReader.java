@@ -8,12 +8,15 @@ import java.util.List;
 
 /** Reads a whole .frv file. Damaged packets are skipped and counted; reading continues at the next good one. */
 final class FrvReader {
+    /** The DRED bitstream version this app plays: Dred.BITSTREAM, kept here too so this class stays free of the voice code. */
+    static final int BITSTREAM = 12;
     static final class Packet {
+        // also made directly by tests
         final int type; final long timeMs; final byte[] data;
         Packet(int type, long timeMs, byte[] data) { this.type = type; this.timeMs = timeMs; this.data = data; }
     }
 
-    int codec, width, height, c2mode, skippedBytes;
+    int codec, width, height, bitstream, q, skippedBytes;
     final List<Packet> packets = new ArrayList<>();
 
     FrvReader(File f) throws IOException { this(Files.readAllBytes(f.toPath())); }
@@ -21,8 +24,10 @@ final class FrvReader {
     FrvReader(byte[] b) throws IOException {
         if (b.length < FrvWriter.HEADER || b[0] != 'F' || b[1] != 'R' || b[2] != 'V' || b[3] != '1') throw new IOException("not a FlatRaster recording");
         if (FrvWriter.crc16(b, 0, 12) != ((b[12] & 255) << 8 | (b[13] & 255))) throw new IOException("the file header is damaged");
+        if (b[4] == 1) throw new IOException("made with Codec 2 voice by version 0.12 or older, which this version can't play");
         if (b[4] != FrvWriter.VERSION) throw new IOException("made by a newer version of the app");
-        codec = b[5] & 255; width = (b[6] & 255) << 8 | (b[7] & 255); height = (b[8] & 255) << 8 | (b[9] & 255); c2mode = b[10] & 255;
+        codec = b[5] & 255; width = (b[6] & 255) << 8 | (b[7] & 255); height = (b[8] & 255) << 8 | (b[9] & 255); bitstream = b[10] & 255; q = b[11] & 255;
+        if (bitstream != BITSTREAM) throw new IOException("its voice was made by a different version of DRED (" + bitstream + "), which this version can't play");
         if (codec >= FrvWriter.MIME.length) throw new IOException("unknown video format");
         int o = FrvWriter.HEADER;
         while (o + FrvWriter.OVERHEAD <= b.length) {

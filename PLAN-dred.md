@@ -1,6 +1,14 @@
 # FlatRaster: DRED replaces Codec 2 for the voice track
 
-Written 2026-11-14, at FlatRaster 0.12, for a session that starts cold. Nothing here is built yet.
+Written 2026-11-14, at FlatRaster 0.12. **Built the same day as 0.13**; results below the steps. Nothing was run on a phone.
+
+## Results, 0.13
+
+- Steps 1 to 8 done as written, with these differences: the voice-track logic is in `VoicePackets` (recording) and `AudioPlan` (time line for playback and MP4), both pure Java; the player decodes sound on its own thread from the start of playback (silence for gaps), so pictures keep their timing; MP4 sound is AAC at 16 kHz with no fallback rate (the phone's encoder took 8 kHz in 0.12; check 16 kHz on the phone).
+- `tests/dred/JT.java`: the app's JNI library gives byte-identical blocks and sound to `dredtest`. `RS.java`: resampler passes.
+- `tests/dred/VP.java` on 41 s of English speech with 2.5 s pauses, q9: 41 packets (38 with skip silence), times rising, 554 bit/s with packet headers (528 with skip silence). Decoded through `AudioPlan` onto the time line: sound 67 ms behind the clock (voice chain 40 ms, DRED 16 ms, the rest rounding of the measure), STOI 0.63 with skip silence on and off, identical to Codec2 Recorder 2.7's path on the same input. DRED alone scores 0.77 on it: the difference is the voice chain, as measured in the recorder (its automatic level costs most).
+- `bash tests/run.sh` passes, now with the voice tests. APK 6.1 MB (0.12 had Codec 2).
+- Not run on a phone: recording, playback, MP4 export, speed of decoding on the phone.
 
 ## Goal and decisions
 

@@ -16,6 +16,7 @@ Last updated: 2026-11-14
 | Border rounding (5x5 most-common-colour filter), on by default from 0.8 | Filter tested on a computer, waiting for phone test |
 | New colours every picture: brand-new palette each picture, each new colour attributed to the nearest previous colour if close enough (0.11) | Filter tested on a computer; cost 5 to 32% more bits than locked colours there. Needs the phone to judge |
 | Exposure and white balance lock while recording | Built, not tested anywhere |
+| Voice: DRED in place of Codec 2 (0.13) | Built and tested on a computer ([PLAN-dred.md](PLAN-dred.md)); not run on a phone |
 | Sending over a narrow link | Not started |
 
 ## What was measured (synthetic clips, AV1 at one quality setting, 320x240)
@@ -57,11 +58,11 @@ Kept out so far by choice (no AI in the app). Notes for when that changes:
 
 ## Voice track: DRED replaces Codec 2
 
-Plan for a new session: [PLAN-dred.md](PLAN-dred.md). Codec 2 goes out completely; old `.frv` files with Codec 2 voice need not play (owner, 2026-11-14). Everything except the `.frv` parts is copied from Codec2 Recorder 2.7.
+Built in 0.13, 2026-11-14: [PLAN-dred.md](PLAN-dred.md) has the steps and the results. Codec 2 is out completely; old `.frv` files with Codec 2 voice don't play (owner, 2026-11-14).
 
 ## Radio
 
-Detailed plan for a new session: [PLAN-radio.md](PLAN-radio.md). Short version: send `.frv` files first, not live video; FreeDV data modes from upstream Codec 2 are the first candidate (same LGPL licence), HamDRM the second (GPL-3.0). The modem sources are not in this repo yet: `third_party/codec2` has only the voice codec's `.c` files.
+Detailed plan for a new session: [PLAN-radio.md](PLAN-radio.md). Short version: send `.frv` files first, not live video; FreeDV data modes are the first candidate, HamDRM the second (GPL-3.0). Take the modem library from Codec2 Recorder (`third_party/codec2-1.2`, `fdvflags.sh`, `jni/fdvjni.c`, `Fountain`, `RadioLink`), already built and measured there; it brings back the LGPL licence file. The voice track is now DRED, about 610 bit/s with packet headers.
 
 ## Files to keep
 

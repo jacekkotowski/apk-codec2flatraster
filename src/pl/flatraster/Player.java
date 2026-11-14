@@ -22,7 +22,7 @@ final class Player {
     }
 
     volatile long positionMs, durationMs;
-    private volatile boolean running = true;
+    private volatile boolean running = true, soundStop;
     private final Thread thread;
 
     Player(final File f, final View view) {
@@ -53,7 +53,7 @@ final class Player {
     private void play(File file, View view) throws Exception {
         FrvReader r = new FrvReader(file);
         durationMs = r.durationMs();
-        MediaCodec dec = null; AudioTrack track = null; VoiceBridge vb = null;
+        MediaCodec dec = null; Thread audio = null;
         try {
             boolean hasVideo = false, hasAudio = false;
             for (FrvReader.Packet p : r.packets) { hasVideo |= p.type == FrvWriter.KEY; hasAudio |= p.type == FrvWriter.AUDIO; }
@@ -64,18 +64,11 @@ final class Player {
                 dec.configure(f, null, null, 0);
                 dec.start();
             }
-            short[] pcm = null; byte[] bits = null;
-            if (hasAudio) {
-                vb = new VoiceBridge(r.c2mode, false, false);
-                pcm = new short[vb.samples]; bits = new byte[vb.bytes];
-                track = new AudioTrack.Builder()
-                        .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
-                        .setAudioFormat(new AudioFormat.Builder().setSampleRate(8000).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
-                        .setBufferSizeInBytes(8000 * 2 * 3).setTransferMode(AudioTrack.MODE_STREAM).build();
-                track.play();
-            }
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
             boolean gotKey = false;
+            // Sound plays on its own thread from the start, silence included, so it keeps time with the pictures by itself.
+            // Decoding a DRED block takes far longer than a Codec 2 frame did, so it must not hold up the pictures.
+            if (hasAudio) { final List<AudioPlan.Item> plan = AudioPlan.of(r.packets); audio = VoiceBridge.thread(() -> sound(plan), "sound"); audio.start(); }
             long t0 = System.nanoTime();
             for (FrvReader.Packet p : ordered(r)) {
                 if (p.type == FrvWriter.CONFIG) continue;
@@ -87,13 +80,8 @@ final class Player {
                     Thread.sleep(Math.min(20, p.timeMs - now));
                 }
                 if (!running) return;
-                if (p.type == FrvWriter.AUDIO && track != null) {
-                    for (int o = 0; o + bits.length <= p.data.length && running; o += bits.length) {
-                        System.arraycopy(p.data, o, bits, 0, bits.length);
-                        vb.decode(bits, pcm);
-                        track.write(pcm, 0, pcm.length);
-                    }
-                } else if ((p.type == FrvWriter.KEY || p.type == FrvWriter.DELTA) && dec != null) {
+                if (p.type == FrvWriter.AUDIO) continue;
+                if ((p.type == FrvWriter.KEY || p.type == FrvWriter.DELTA) && dec != null) {
                     if (p.type == FrvWriter.KEY) gotKey = true;
                     if (!gotKey) continue; // pictures before the first full one can't be decoded
                     int in = dec.dequeueInputBuffer(100_000);
@@ -104,15 +92,42 @@ final class Player {
                     show(dec, info, view, r, 150_000);
                 }
             }
-            for (int i = 0; i < 25 && running; i++) { if (dec != null) show(dec, info, view, r, 0); Thread.sleep(20); } // let the last second of sound out
+            for (int i = 0; i < 25 && running; i++) { if (dec != null) show(dec, info, view, r, 0); Thread.sleep(20); }
+            if (audio != null) audio.join(); // the last block of sound ends up to a second after the last packet time
             positionMs = durationMs;
         } catch (InterruptedException ignored) {
         } finally {
             if (dec != null) { try { dec.stop(); } catch (Exception ignored) {} dec.release(); }
-            if (track != null) { try { track.stop(); } catch (Exception ignored) {} track.release(); }
-            if (vb != null) vb.close();
+            if (audio != null) { soundStop = true; audio.interrupt(); try { audio.join(2000); } catch (InterruptedException ignored) {} }
         }
     }
+
+    /** Plays the voice: silence for the gaps, each block decoded as it is needed. A block decodes in about 30 ms on a computer. */
+    private void sound(List<AudioPlan.Item> plan) {
+        AudioTrack track = null;
+        try (VoiceBridge.Decoder d = new VoiceBridge.Decoder()) {
+            track = new AudioTrack.Builder()
+                    .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+                    .setAudioFormat(new AudioFormat.Builder().setSampleRate(AudioPlan.FS).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                    .setBufferSizeInBytes(AudioPlan.FS * 2 * 2).setTransferMode(AudioTrack.MODE_STREAM).build();
+            track.play();
+            short[] zero = new short[AudioPlan.FS / 10]; long written = 0;
+            for (AudioPlan.Item it : plan) {
+                for (long left = it.silence; left > 0 && (running && !soundStop); ) { int k = (int) Math.min(zero.length, left); write(track, zero, k); left -= k; }
+                int m = Math.min(it.samples, d.block(it.block, it.block.length));
+                if (!(running && !soundStop)) break;
+                write(track, d.pcm, m); written += it.silence + m;
+            }
+            if ((running && !soundStop)) { // let the end play out
+                track.stop();
+                long end = System.currentTimeMillis() + 3000;
+                while ((running && !soundStop) && track.getPlaybackHeadPosition() < written && System.currentTimeMillis() < end) Thread.sleep(20);
+            }
+        } catch (InterruptedException ignored) {
+        } catch (Exception e) { /* sound is lost, pictures go on */ }
+        finally { if (track != null) { try { track.pause(); track.flush(); } catch (Exception ignored) {} track.release(); } }
+    }
+    private void write(AudioTrack t, short[] b, int n) { for (int o = 0; o < n && (running && !soundStop); ) { int w = t.write(b, o, n - o); if (w < 0) return; o += w; } }
 
     /** Shows every picture the decoder has ready, waiting up to waitUs for the first. */
     private void show(MediaCodec dec, MediaCodec.BufferInfo info, View view, FrvReader r, long waitUs) {

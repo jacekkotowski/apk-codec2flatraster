@@ -1,19 +1,21 @@
 package pl.dyktafon;
 
 /**
- * Noise reduction at 8 kHz for weak speech.
+ * Noise reduction for weak speech, at 8 or 16 kHz. The window is 32 ms at either rate, so the bands are 31.25 Hz wide and the band numbers below mean the same frequencies.
  * Noise per band comes from an optional measured sample plus continuous minimum tracking, so it follows changing noise.
  * Gain is a decision-directed Wiener filter, smoothed across bands to avoid musical noise.
  * The same estimate gives a likelihood-ratio speech score for voice activation.
  */
 final class Denoiser {
-    static final int N = 256, HOP = 128, BINS = N / 2 + 1;
     private static final int WINDOW = 31, WINDOWS = 4; // about 2 s of minimum tracking
-    private final double[] win = new double[N], ring = new double[N], ola = new double[N], re = new double[N], im = new double[N];
-    private final double[] S = new double[BINS], Smin = new double[BINS], Stmp = new double[BINS], noise = new double[BINS], prevClean = new double[BINS], g = new double[BINS], g2 = new double[BINS];
-    private final double[][] hist = new double[WINDOWS][BINS];
-    private final double[] outQ; private int outR, outW, fill, hIdx; private long hops;
-    private final double[] llr = new double[BINS];
+    final int N, HOP, BINS; private final int fs;
+    /** Size of a noise profile at this sample rate. */
+    static int bins(int fs) { return 256 * fs / 8000 / 2 + 1; }
+    private final double[] win, ring, ola, re, im;
+    private final double[] S, Smin, Stmp, noise, prevClean, g, g2;
+    private final double[][] hist;
+    private final double[] outQ; private int outR, outW, fill, hIdx, ringP; private long hops;
+    private final double[] llr;
     private double[] profile;
     private double[] sampleSum; private int sampleLeft, sampleCount;
     private double scoreSum; private int scoreN; private double lastScore, bandSum, lastBand; private int bandN;
@@ -22,7 +24,11 @@ final class Denoiser {
     /** Lowest gain: 0.3 is gentle, 0.1 is strong. Higher values keep more noise and more of quiet consonants. */
     double floor = 0.18;
 
-    Denoiser(int maxBlock, double[] noiseProfile) {
+    Denoiser(int fs, int maxBlock, double[] noiseProfile) {
+        this.fs = fs; N = 256 * fs / 8000; HOP = N / 2; BINS = N / 2 + 1;
+        win = new double[N]; ring = new double[N]; ola = new double[N]; re = new double[N]; im = new double[N];
+        S = new double[BINS]; Smin = new double[BINS]; Stmp = new double[BINS]; noise = new double[BINS]; prevClean = new double[BINS]; g = new double[BINS]; g2 = new double[BINS];
+        hist = new double[WINDOWS][BINS]; llr = new double[BINS];
         for (int i = 0; i < N; i++) win[i] = Math.sin(Math.PI * (i + 0.5) / N);
         outQ = new double[Math.max(4 * N, 4 * maxBlock)];
         outW = N; // one window of silence is the filter's delay (32 ms)
@@ -32,7 +38,7 @@ final class Denoiser {
     }
 
     /** Measure noise for the next seconds; speech must not be present. */
-    void startSample(double seconds) { sampleSum = new double[BINS]; sampleCount = 0; sampleLeft = (int) (seconds * 8000 / HOP); }
+    void startSample(double seconds) { sampleSum = new double[BINS]; sampleCount = 0; sampleLeft = (int) (seconds * fs / HOP); }
     boolean sampling() { return sampleSum != null; }
     double[] profile() { return profile; }
 
@@ -44,8 +50,7 @@ final class Denoiser {
 
     void process(double[] x, int n) {
         for (int i = 0; i < n; i++) {
-            System.arraycopy(ring, 1, ring, 0, N - 1);
-            ring[N - 1] = x[i];
+            ring[ringP] = x[i]; ringP = (ringP + 1) % N; // ringP is now the oldest sample
             if (++fill >= HOP) { fill = 0; hop(); }
             x[i] = outQ[outR]; outQ[outR] = 0; outR = (outR + 1) % outQ.length;
         }
@@ -53,7 +58,7 @@ final class Denoiser {
 
     private void hop() {
         hops++;
-        for (int i = 0; i < N; i++) { re[i] = ring[i] * win[i]; im[i] = 0; }
+        for (int i = 0; i < N; i++) { re[i] = ring[(ringP + i) % N] * win[i]; im[i] = 0; }
         fft(re, im, false);
         double band = 0;
         boolean windowEnd = hops > 12 && hops % WINDOW == 0;
@@ -92,7 +97,7 @@ final class Denoiser {
         java.util.Arrays.sort(llr, 0, scored); // voiced speech fills only some bands, so use the strongest quarter
         for (int k = scored - scored / 4; k < scored; k++) score += llr[k];
         scoreSum += score / (scored / 4); scoreN++;
-        bandSum += band / 99; bandN++;
+        bandSum += band / 99 * (256.0 / N) * (256.0 / N); bandN++; // the same level in dB at either rate
         if (sampleSum != null) {
             sampleCount++;
             if (--sampleLeft <= 0) {
