@@ -17,3 +17,4 @@ __pycache__/
 tests/dred/obj/
 tests/dred/out/
 tests/dred/dredtest
+!dist/*.apk

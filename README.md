@@ -4,6 +4,10 @@ Android app that records low-frame-rate video made flat on purpose (few solid co
 
 Current version: 0.13, with DRED voice in place of Codec 2; `.frv` files from 0.12 or older don't play in it. Version 0.1 was reported working on the owner's phone. Not yet tried on a phone: the DRED voice (recording, playback, MP4 export), and everything added since (Flip camera, timed new colours, full-picture interval, skip silence, clean-up strength, repeating movement, still pictures, faces, the new hold rule for smooth borders, exposure lock, border rounding, new colours every picture with a threshold on colour changes). Roadmap and notes in [PLAN.md](PLAN.md).
 
+## Download
+
+[`dist/FlatRaster-0.13.apk`](dist/FlatRaster-0.13.apk), signed with the project key, installs over earlier versions.
+
 ## How it works
 
 - Camera2 gives YUV frames at the chosen rate (0.5 to 5 pictures per second).
