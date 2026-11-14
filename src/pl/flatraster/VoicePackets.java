@@ -13,6 +13,9 @@ final class VoicePackets {
     interface Sink { void audio(long timeMs, byte[] data, int len) throws java.io.IOException; }
 
     private static final int PRE = 400 / VoiceBridge.CHUNK_MS;
+    /** The voice chain and DRED together put the sound this late (denoiser window, limiter look-ahead, DRED's own delay),
+     *  measured with tests/dred/VP.java on speech. Blocks are stamped this much earlier so sound and picture stay in step. */
+    static final int DELAY_MS = 67;
     private final VoiceBridge vb; private final boolean skip; private final long offsetMs; private final Sink sink;
     private final short[][] pre = new short[PRE][VoiceBridge.CHUNK]; private int preW, preC;
     private boolean wasOpen; private long chunks, runStartMs, runBlocks;
@@ -43,7 +46,7 @@ final class VoicePackets {
         return level;
     }
 
-    private void block(byte[] b, int n) throws java.io.IOException { sink.audio(runStartMs + runBlocks * VoiceBridge.BLOCK_MS, b, n); runBlocks++; }
+    private void block(byte[] b, int n) throws java.io.IOException { sink.audio(Math.max(0, runStartMs + runBlocks * VoiceBridge.BLOCK_MS - DELAY_MS), b, n); runBlocks++; }
 
     /** At the end of the recording: the last block. */
     void finish() throws java.io.IOException { if (wasOpen) vb.finish(this::block); wasOpen = false; }
