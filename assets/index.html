@@ -39,6 +39,9 @@ select:disabled{opacity:.5}
 button.danger{background:var(--rec);border-color:var(--rec);color:#fff}
 .bar{height:4px;background:var(--bg);margin-top:6px;border-radius:2px;overflow:hidden}.bar i{display:block;height:100%;width:0;background:var(--play)}
 #empty{color:var(--dim);padding:18px 0;font-size:14px}
+.wide{grid-column:1/-1}h2{grid-column:1/-1;margin:8px 0 0;font-size:13px;color:var(--fg);border-top:1px solid var(--line);padding-top:8px}
+#noise{display:flex;gap:8px;align-items:center;flex-wrap:wrap}#noise button{min-height:40px;font-size:14px}#nst{color:var(--dim);font:12px var(--mono)}
+.vm{position:relative;height:8px;background:var(--bg);border-radius:2px;overflow:hidden}.vm i{display:block;height:100%;width:0;background:var(--amber)}.vm b{position:absolute;top:0;bottom:0;width:2px;background:var(--fg);left:0}
 </style></head><body>
 <div id="app">
  <div id="deck">
@@ -69,6 +72,21 @@ button.danger{background:var(--rec);border-color:var(--rec);color:#fff}
    <label>Silence<select id="skip"><option value="0">Record</option><option value="1">Skip</option></select></label>
    <label>Voice<select id="voice"></select></label>
    <label>Camera<select id="front"><option value="0">Back</option><option value="1">Front</option></select></label>
+   <h2>Sound, as in Codec2 Recorder</h2>
+   <label class="wide">Microphone<select id="mic"><option value="0">Automatic</option></select></label>
+   <label>Audio source<select id="src"><option value="6">Voice recognition (recommended)</option><option value="1">Microphone (louder, may overload)</option><option value="5">Camcorder (often rear mic)</option><option value="9">Unprocessed</option></select></label>
+   <label>Rec level<select id="rl"><option value="auto">Auto</option><option value="-12">-12 dB</option><option value="-6">-6 dB</option><option value="0">0 dB</option><option value="6">+6 dB</option><option value="12">+12 dB</option><option value="18">+18 dB</option><option value="24">+24 dB</option><option value="30">+30 dB</option><option value="36">+36 dB</option></select></label>
+   <label>Denoise<select id="dn"><option value="1">On</option><option value="0">Off</option></select></label>
+   <label>Denoise strength<select id="st"><option value="0.3">Gentle (keeps consonants best)</option><option value="0.18">Medium</option><option value="0.1">Strong (quietest pauses)</option></select></label>
+   <div id="noise" class="wide"><button id="samp">Sample noise</button><button id="nclr" hidden>Clear</button><span id="nst"></span></div>
+   <label>Rumble cut<select id="rm"><option value="120">Light (120 Hz)</option><option value="180">Medium (180 Hz)</option><option value="300">Strong (300 Hz)</option></select></label>
+   <label>Compressor<select id="cp"><option value="1">Off</option><option value="2">Light (2:1)</option><option value="3">Medium (3:1)</option><option value="5">Strong (5:1)</option></select></label>
+   <label>Noise gate<select id="ng"><option value="0">Off</option><option value="6">Light (-6 dB in pauses)</option><option value="12">Medium (-12 dB)</option><option value="24">Strong (-24 dB)</option></select></label>
+   <label>Consonant lift<select id="cl"><option value="0">Off</option><option value="4">Light (up to +4 dB)</option><option value="6">Medium (up to +6 dB)</option><option value="10">Strong (up to +10 dB)</option></select></label>
+   <label>Treble boost<select id="tb"><option value="0">Off</option><option value="1">Light (+6 dB)</option><option value="2">Strong (+10 dB)</option></select></label>
+   <label>Voice sensitivity (Silence: Skip)<select id="sens"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option></select></label>
+   <label>Hold after speech<select id="hold"><option value="0.5">0.5 s</option><option value="1">1 s</option><option value="2">2 s</option><option value="3">3 s</option></select></label>
+   <div class="wide vm" id="vmrow" aria-hidden="true"><i id="vm"></i><b id="vt"></b></div>
   </div>
  </div>
  <div id="shelf"><div id="list"></div><div id="empty">No recordings yet.</div></div>
@@ -77,20 +95,29 @@ button.danger{background:var(--rec);border-color:var(--rec);color:#fff}
 // Outside the app (a desktop browser) a stand-in bridge keeps the page usable for layout checks.
 var A = window.Android || {status:function(){return '{"camera":true,"avail":"0,1"}'},list:function(){return '[]'},voiceModes:function(){return '["best","balanced","small","smallest"]'},config:function(){},newPalette:function(){},startRec:function(){},stopRec:function(){},play:function(){},stopPlay:function(){},mp4:function(){},remove:function(){},rename:function(){return true},share:function(){}};
 var $ = function(id){return document.getElementById(id)};
-var ids = ['fps','size','colors','smooth','pal','thr','clean','round','lock','focus','ignore','still','kbps','key','skip','codec','voice','front'];
-var defaults = {fps:'2',size:'2',colors:'8',smooth:'2',pal:'0',thr:'16',clean:'1',round:'1',lock:'0',focus:'0',ignore:'0',still:'0',kbps:'5',key:'10',skip:'0',codec:'-1',voice:'small',front:'0'};
+var ids = ['fps','size','colors','smooth','pal','thr','clean','round','lock','focus','ignore','still','kbps','key','skip','codec','voice','front','mic','src','rl','dn','st','rm','cp','ng','cl','tb','sens','hold'];
+var defaults = {fps:'2',size:'2',colors:'8',smooth:'2',pal:'0',thr:'16',clean:'1',round:'1',lock:'0',focus:'0',ignore:'0',still:'0',kbps:'5',key:'10',skip:'0',codec:'-1',voice:'small',front:'0',
+  // Sound: Codec2 Recorder's defaults
+  mic:'0',src:'6',rl:'auto',dn:'1',st:'0.18',rm:'180',cp:'3',ng:'12',cl:'6',tb:'1',sens:'5',hold:'1'};
 var rec = false, listKey = '', msgUntil = 0, renaming = null, renameText = null, confirmDel = null;
 
 // DRED levels and their voice bitrate with packet headers, about, measured on a computer. A Codec 2 mode stored by 0.12 falls back to the default.
 var VBPS = {best:1430, balanced:900, small:610, smallest:390};
 JSON.parse(A.voiceModes()).forEach(function(m){var o=document.createElement('option');o.value=m;o.textContent='DRED '+m+(VBPS[m]?', about '+VBPS[m]+' bit/s':'');$('voice').appendChild(o)});
+function fillMics(){ var el=$('mic'), want=el.value||'0'; try { var sv=JSON.parse(localStorage.getItem('set')||'{}'); if (sv.mic) want=sv.mic } catch (e) {}
+  el.textContent=''; var d=document.createElement('option'); d.value='0'; d.textContent='Automatic'; el.appendChild(d);
+  if (A.microphones) try { JSON.parse(A.microphones()).forEach(function(m){ var o=document.createElement('option'); o.value=String(m.id); o.textContent=m.name; el.appendChild(o) }) } catch (e) {}
+  el.value=want; if (el.value!==want) el.value='0'; }
+fillMics();
 var saved = {}; try { saved = JSON.parse(localStorage.getItem('set') || '{}') } catch (e) {}
 ids.forEach(function(id){ $(id).value = saved[id] != null ? saved[id] : defaults[id]; if ($(id).selectedIndex < 0) $(id).value = defaults[id]; $(id).onchange = push; });
 
 function push(){
   var s = {}; ids.forEach(function(id){ s[id] = $(id).value });
   try { localStorage.setItem('set', JSON.stringify(s)) } catch (e) {}
-  A.config(JSON.stringify({fps:+s.fps,size:+s.size,colors:+s.colors,smooth:+s.smooth,pal:+s.pal,thr:+s.thr,clean:+s.clean,round:+s.round,lock:s.lock==='1',focus:+s.focus,ignore:+s.ignore,still:+s.still,kbps:+s.kbps,key:+s.key,skip:s.skip==='1',codec:+s.codec,voice:s.voice,front:s.front==='1'}));
+  A.config(JSON.stringify({fps:+s.fps,size:+s.size,colors:+s.colors,smooth:+s.smooth,pal:+s.pal,thr:+s.thr,clean:+s.clean,round:+s.round,lock:s.lock==='1',focus:+s.focus,ignore:+s.ignore,still:+s.still,kbps:+s.kbps,key:+s.key,skip:s.skip==='1',codec:+s.codec,voice:s.voice,front:s.front==='1',
+    mic:+s.mic,src:+s.src,auto:s.rl==='auto',rl:s.rl==='auto'?12:+s.rl,dn:s.dn==='1',st:+s.st,rm:+s.rm,cp:+s.cp,ng:+s.ng,cl:+s.cl,tb:+s.tb,sens:+s.sens,hold:+s.hold}));
+  $('vt').style.left = (20 - 1.8 * +s.sens) / 24 * 100 + '%'; $('vmrow').hidden = s.skip !== '1'; $('sens').disabled = $('hold').disabled = s.skip !== '1';
 }
 function clock(ms){ var s=Math.floor(ms/1000), m=Math.floor(s/60); return (m<10?'0':'')+m+':'+(s%60<10?'0':'')+s%60 }
 function size(b){ return b<1024 ? b+' B' : b<1048576 ? (b/1024).toFixed(1)+' kB' : (b/1048576).toFixed(2)+' MB' }
@@ -98,6 +125,10 @@ function say(t){ $('msg').textContent = t; msgUntil = Date.now() + 8000 }
 
 $('recb').onclick = function(){ if (rec) A.stopRec(); else { push(); A.startRec() } };
 $('newpal').onclick = function(){ A.newPalette() };
+$('samp').onclick = function(){ say(''); if (A.sampleNoise) A.sampleNoise() };
+$('nclr').onclick = function(){ if (A.clearNoise) A.clearNoise() };
+$('mic').addEventListener('pointerdown', function(){ if (!rec) fillMics() });
+document.addEventListener('visibilitychange', function(){ if (!document.hidden) fillMics() });
 $('flip').onclick = function(){ $('front').value = $('front').value === '1' ? '0' : '1'; push(); say($('front').value === '1' ? 'Front camera' : 'Back camera') };
 function fold(hide){ $('set').style.display = hide ? 'none' : ''; $('tog').textContent = hide ? 'Settings' : 'Hide settings'; $('tog').setAttribute('aria-expanded', String(!hide)); try { localStorage.setItem('fold', hide ? '1' : '') } catch (e) {} }
 $('tog').onclick = function(){ fold($('set').style.display !== 'none') };
@@ -111,7 +142,10 @@ function tick(){
   $('recb').className = rec ? 'on' : ''; $('recb').textContent = rec ? 'STOP' : 'REC';
   $('recb').setAttribute('aria-label', rec ? 'Stop recording' : 'Record');
   $('recb').disabled = !rec && !s.camera;
-  ['size','colors','kbps','key','skip','lock','codec','voice','front','fps'].forEach(function(id){ $(id).disabled = rec });
+  ['size','colors','kbps','key','skip','lock','codec','voice','front','fps','mic','src','dn','st','rm','cp','ng','cl','tb'].forEach(function(id){ $(id).disabled = rec });
+  $('samp').disabled = !!s.sampling; $('samp').textContent = s.sampling ? 'Sampling...' : 'Sample noise'; $('nclr').hidden = !s.hasNoise || !!s.sampling;
+  $('nst').textContent = s.sampling ? 'Stay silent for 2 s' : s.hasNoise ? 'Sample saved, adapting' : 'Auto, adapting';
+  $('vm').style.width = (rec ? Math.round(100 * (s.vad || 0)) : 0) + '%';
   $('flip').disabled = rec;
   var av = (s.avail || '').split(',');
   Array.prototype.forEach.call($('codec').options, function(o){ if (o.value !== '-1') o.disabled = av.indexOf(o.value) < 0 });
@@ -120,7 +154,7 @@ function tick(){
     $('rate').textContent = 'video ' + ((s.vbps||0)/1000).toFixed(2) + ' kbps, voice ' + Math.round(s.abps||0) + ' bit/s' + (s.quiet ? ' (silence)' : '') + ', ' + size(s.bytes||0) + ', ' + (s.frames||0) + ' pictures' + (s.skipped ? ' (' + s.skipped + ' skipped)' : '');
     $('lvl').style.width = Math.round(100*(s.level||0)) + '%';
     $('lvl').style.background = s.overload ? 'var(--rec)' : (s.level||0) > 0.85 ? 'var(--amber)' : 'var(--play)';
-    $('enc').textContent = s.encoder || '';
+    $('enc').textContent = (s.encoder || '') + (s.gain ? ', gain ' + (20 * Math.log10(Math.max(s.gain, 0.01))).toFixed(0) + ' dB' : '') + (s.routed ? ', ' + s.routed : '');
   } else {
     $('clock').textContent = s.play ? clock(s.pos||0) : '00:00';
     $('rate').textContent = s.exporting ? 'Saving MP4...' : s.play ? 'Playing ' + s.play : s.camera ? 'Ready, ' + s.w + ' x ' + s.h : 'Waiting for the camera';

@@ -36,6 +36,9 @@ import java.util.HashMap;
 import java.util.Locale;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import pl.dyktafon.MicRoute;
+import pl.dyktafon.NoiseStore;
+import pl.dyktafon.SoundSettings;
 import pl.dyktafon.VoiceBridge;
 
 /** One screen: the posterized camera picture on top (or at the side), the controls in a WebView. */
@@ -59,6 +62,9 @@ public class MainActivity extends Activity implements CameraSource.Listener {
     private volatile int sizeIdx = 2, colors = 8, smooth = 2, kbps = 5, wantCodec = -1, voiceQ = VoiceBridge.DEFAULT_Q, palSec = 0, keySec = 10, cleanLvl = 1, ignoreLvl = 0, stillLvl = 0, focusLvl = 0, faceCount = 0, roundLvl = 1, trackThr = 16;
     private volatile double fps = 2;
     private volatile boolean front, portrait = true, skipSilence, lockLight;
+    /** Codec2 Recorder's sound settings, set from the page. */
+    private final SoundSettings sound = new SoundSettings();
+    private static volatile boolean idleSampling;
 
     // Filter and recording state, guarded by lock.
     private final Object lock = new Object();
@@ -245,7 +251,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
         if (recording) return;
         if (!has(Manifest.permission.CAMERA) || !has(Manifest.permission.RECORD_AUDIO)) {
             pendingStart = true;
-            requestPermissions(new String[]{Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO}, REQ_PERM);
+            requestPermissions(Build.VERSION.SDK_INT >= 31 ? new String[]{Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO, Manifest.permission.BLUETOOTH_CONNECT} : new String[]{Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO}, REQ_PERM);
             return;
         }
         stopPlayback();
@@ -272,7 +278,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             w = writer;
         }
         if (lockLight && camera != null) camera.setLock(true);
-        audio = new AudioCapture(voiceQ, start, skipSilence, (t, d, len) -> w.write(FrvWriter.AUDIO, t, d, 0, len));
+        audio = new AudioCapture(this, voiceQ, sound.copyLive(), start, skipSilence, (t, d, len) -> w.write(FrvWriter.AUDIO, t, d, 0, len));
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LOCKED);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
@@ -373,12 +379,15 @@ public class MainActivity extends Activity implements CameraSource.Listener {
                     double sec = Math.max(0.001, (System.nanoTime() - recStartNs) / 1e9);
                     o.put("ms", (long) (sec * 1000)).put("bytes", wr.bytes).put("frames", frames).put("skipped", skipped)
                             .put("vbps", wr.videoBytes * 8 / sec).put("abps", wr.audioBytes * 8 / sec)
-                            .put("level", a == null ? 0 : a.level).put("overload", a != null && a.overload).put("quiet", a != null && a.quiet);
+                            .put("level", a == null ? 0 : a.level).put("overload", a != null && a.overload).put("quiet", a != null && a.quiet)
+                            .put("gain", a == null ? 0 : a.gain).put("vad", a == null ? 0 : a.vad).put("routed", a == null ? "" : a.routed);
                     if (a != null) a.overload = false;
                 }
                 Player p = player;
                 if (p != null) o.put("play", playName).put("pos", p.positionMs).put("dur", p.durationMs);
+                o.put("sampling", idleSampling || (a != null && (a.sampling || a.sampleReq))).put("hasNoise", NoiseStore.has(MainActivity.this));
                 String n = notice; notice = null;
+                if (n == null && a != null && a.notice != null) { n = a.notice; a.notice = null; }
                 if (n != null) o.put("notice", n);
                 return o.toString();
             } catch (Exception e) { return "{}"; }
@@ -403,6 +412,17 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             return arr.toString();
         }
 
+        @JavascriptInterface public String microphones() { return MicRoute.list(MainActivity.this); }
+        @JavascriptInterface public void sampleNoise() {
+            if (!has(Manifest.permission.RECORD_AUDIO)) { runOnUiThread(() -> requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_PERM)); return; }
+            AudioCapture a = audio;
+            if (a != null) { a.sampleReq = true; return; }
+            if (idleSampling) return;
+            idleSampling = true;
+            final SoundSettings s = sound.copyLive();
+            VoiceBridge.thread(() -> { String e = NoiseStore.sample(MainActivity.this, s); notice = e == null ? "Noise sample saved" : "Noise sample failed: " + e; idleSampling = false; }, "sample").start();
+        }
+        @JavascriptInterface public void clearNoise() { NoiseStore.clear(MainActivity.this); notice = "Noise sample cleared"; }
         @JavascriptInterface public String voiceModes() { return new JSONArray(Arrays.asList(VoiceBridge.levelNames())).toString(); }
 
         /** Settings from the controls. Size, colours, format and voice mode wait until a recording has ended. */
@@ -425,6 +445,16 @@ public class MainActivity extends Activity implements CameraSource.Listener {
                 skipSilence = o.optBoolean("skip", skipSilence);
                 lockLight = o.optBoolean("lock", lockLight);
                 wantCodec = Math.max(-1, Math.min(FrvWriter.MIME.length - 1, o.optInt("codec", wantCodec)));
+                // Sound, as in Codec2 Recorder. Rec level, sensitivity and hold apply at once, also while recording; the rest from the next recording.
+                sound.gainDb = o.optBoolean("auto", true) ? -100 : Math.max(-12, Math.min(36, o.optInt("rl", 12)));
+                sound.sensitivity = Math.max(1, Math.min(10, o.optInt("sens", sound.sensitivity)));
+                sound.hold = Math.max(0.5, Math.min(3, o.optDouble("hold", sound.hold)));
+                if (!recording) {
+                    sound.source = o.optInt("src", sound.source); sound.device = o.optInt("mic", sound.device); sound.denoise = o.optBoolean("dn", sound.denoise);
+                    sound.treble = Math.max(0, Math.min(2, o.optInt("tb", sound.treble))); sound.floor = Math.max(0.05, Math.min(0.5, o.optDouble("st", sound.floor)));
+                    sound.rumble = Math.max(40, Math.min(400, o.optInt("rm", sound.rumble))); sound.lift = Math.max(0, Math.min(12, o.optDouble("cl", sound.lift)));
+                    sound.gate = Math.max(0, Math.min(30, o.optDouble("ng", sound.gate))); sound.comp = Math.max(1, Math.min(8, o.optDouble("cp", sound.comp)));
+                }
                 int m = VoiceBridge.levelOf(o.optString("voice", ""));
                 if (m >= 0) voiceQ = m;
                 fps = Math.max(0.2, Math.min(15, o.optDouble("fps", fps)));

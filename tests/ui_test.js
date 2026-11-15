@@ -73,6 +73,38 @@ const { chromium } = require('playwright');
     if (v.value !== want || v.n !== 4 || !v.text.startsWith('DRED ' + want)) errors.push('voice: stored ' + stored + ' gave ' + JSON.stringify(v));
     await p.close();
   }
+  // Sound settings: Codec2 Recorder's defaults go to the app, fixed ones lock while recording, live ones don't.
+  {
+    const p = await b.newPage({ viewport: { width: 393, height: 1400 } });
+    p.on('pageerror', e => errors.push('sound: ' + e.message));
+    await p.addInitScript(() => {
+      window.cfg = []; window.calls = []; window.recNow = false;
+      window.Android = { status: () => JSON.stringify({camera:true,avail:'0',rec:window.recNow,ms:5000,bytes:900,vbps:3000,abps:600,level:.5,gain:4,vad:.4,routed:'Phone microphone #7',sampling:false,hasNoise:true,encoder:'AV1'}),
+        list: () => '[]', voiceModes: () => '["best","balanced","small","smallest"]', microphones: () => '[{"id":7,"name":"Phone microphone #7"},{"id":9,"name":"USB #9"}]',
+        config: (c) => window.cfg.push(JSON.parse(c)), sampleNoise: () => window.calls.push('sample'), clearNoise: () => window.calls.push('clear'),
+        newPalette(){}, startRec(){}, stopRec(){}, play(){}, stopPlay(){}, mp4(){}, share(){}, remove(){}, rename(){ return true } };
+    });
+    await p.goto('file://' + process.argv[2]); await p.waitForTimeout(400);
+    const c = await p.evaluate(() => window.cfg[window.cfg.length - 1]);
+    const want = {mic:0,src:6,auto:true,rl:12,dn:true,st:0.18,rm:180,cp:3,ng:12,cl:6,tb:1,sens:5,hold:1};
+    const bad = Object.keys(want).filter(k => c[k] !== want[k]);
+    console.log('sound defaults', JSON.stringify(c));
+    if (bad.length) errors.push('sound: defaults differ from Codec2 Recorder: ' + bad.join(','));
+    const mics = await p.$$eval('#mic option', o => o.map(x => x.textContent).join('|'));
+    if (mics !== 'Automatic|Phone microphone #7|USB #9') errors.push('sound: microphone list ' + mics);
+    await p.selectOption('#rl', '18'); await p.selectOption('#mic', '9'); await p.selectOption('#skip', '1'); await p.selectOption('#sens', '8');
+    const c2 = await p.evaluate(() => window.cfg[window.cfg.length - 1]);
+    if (c2.auto !== false || c2.rl !== 18 || c2.mic !== 9 || c2.sens !== 8) errors.push('sound: changes not sent ' + JSON.stringify(c2));
+    await p.click('#samp'); await p.click('#nclr');
+    if ((await p.evaluate(() => window.calls.join(','))) !== 'sample,clear') errors.push('sound: noise buttons');
+    await p.evaluate(() => { window.recNow = true }); await p.waitForTimeout(500);
+    const lock = await p.evaluate(() => ['mic','src','dn','st','rm','cp','ng','cl','tb'].filter(id => !document.getElementById(id).disabled).concat(['rl','sens','hold'].filter(id => document.getElementById(id).disabled).map(x => 'live:' + x)));
+    if (lock.length) errors.push('sound: wrong lock while recording: ' + lock.join(','));
+    const enc = await p.evaluate(() => document.getElementById('enc').textContent);
+    if (!enc.includes('gain 12 dB') || !enc.includes('Phone microphone')) errors.push('sound: status line ' + enc);
+    await p.screenshot({ path: process.argv[3] + '/ui_sound.png', fullPage: true });
+    await p.close();
+  }
   console.log('errors:', JSON.stringify(errors));
   await b.close();
 })();

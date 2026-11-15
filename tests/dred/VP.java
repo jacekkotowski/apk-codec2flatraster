@@ -26,7 +26,7 @@ public class VP {
         DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(a[3])));
         long n = new File(a[3]).length() / 2;
         List<long[]> times = new ArrayList<>();
-        try (FrvWriter w = new FrvWriter(new File(a[4]), FrvWriter.AV1, 320, 240, VoiceBridge.bitstream(), q); VoiceBridge vb = new VoiceBridge(q, false)) {
+        try (FrvWriter w = new FrvWriter(new File(a[4]), FrvWriter.AV1, 320, 240, VoiceBridge.bitstream(), q); VoiceBridge vb = new VoiceBridge(q)) {
             VoicePackets vp = new VoicePackets(vb, skip, off, (t, d, len2) -> { w.write(FrvWriter.AUDIO, t, d, 0, len2); times.add(new long[]{t, len2}); });
             short[] pcm = new short[VoiceBridge.CHUNK];
             for (long i = 0; i + pcm.length <= n; i += pcm.length) { for (int k = 0; k < pcm.length; k++) pcm[k] = Short.reverseBytes(in.readShort()); vp.chunk(pcm); }

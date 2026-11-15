@@ -8,24 +8,37 @@ public final class VoiceBridge implements AutoCloseable {
     public static final int FS = Dred.FS, CHUNK = 2 * Dred.FRAME, CHUNK_MS = CHUNK * 1000 / FS, BLOCK_MS = Dred.BLOCK_SAMPLES * 1000 / FS, BLOCK_SAMPLES = Dred.BLOCK_SAMPLES;
     public interface Sink { void block(byte[] b, int n) throws java.io.IOException; }
 
-    private final VoiceChain chain; private DredLib.Coder coder; public final int q;
+    private final VoiceChain chain; private DredLib.Coder coder; public final int q; private final SoundSettings set;
+    private boolean sampling;
     private final short[] half = new short[Dred.FRAME];
     /** True while the last chunk held speech (with about a second of hold after it). */
     public boolean voice = true;
 
-    /** Encoder at level q. Throws if the coder does not start. */
-    public VoiceBridge(int q, boolean denoise) {
-        this.q = q;
-        // Same defaults as RecService: denoise floor 0.18, treble 1, rumble cut 180 Hz, lift 6 dB, gate 12 dB, compressor 3.
-        chain = new VoiceChain(FS, VoiceChain.CEILING_DRED, CHUNK, denoise, 0.18, 1, null, 180, 6, 12, 3);
+    /** Encoder at level q with Codec2 Recorder's sound settings and saved noise sample (or null). Throws if the coder does not start. */
+    public VoiceBridge(int q, SoundSettings s, double[] noise) {
+        this.q = q; set = s;
+        chain = new VoiceChain(FS, VoiceChain.CEILING_DRED, CHUNK, s.denoise, s.floor, s.treble, noise, s.rumble, s.lift, s.gate, s.comp);
         coder = new DredLib.Coder(q);
     }
+    /** With the defaults of Codec2 Recorder. */
+    public VoiceBridge(int q) { this(q, new SoundSettings(), null); }
 
-    /** Runs the voice chain on one CHUNK of sound in place with automatic level. Returns the level, 0..1. Sets voice. */
+    /** Runs the voice chain on one CHUNK of sound in place. Rec level, voice sensitivity and hold are read live from the settings. Returns the level, 0..1. Sets voice. */
     public float process(short[] pcm) {
-        voice = chain.process(pcm, -100, 5, 1); // sensitivity 5 and 1 s hold: RecService's defaults
+        voice = chain.process(pcm, set.gainDb(), set.sensitivity(), set.hold());
         return (float) chain.level;
     }
+
+    /** Measures the background for the next 2 s while recording; nobody should speak. */
+    public void startNoiseSample() { chain.den.startSample(2); sampling = true; }
+    /** The new noise profile once the sample is done, else null. */
+    public double[] takeNoiseSample() { if (sampling && !chain.den.sampling()) { sampling = false; return chain.den.profile(); } return null; }
+    public boolean sampling() { return sampling; }
+    /** Current gain, in the same numbers Codec2 Recorder shows; 0..1 meter of voice above the background. */
+    public double gain() { return chain.currentGain; }
+    public double voiceMeter() { return chain.meter; }
+    /** True once the microphone itself has overloaded, before the app got the sound. */
+    public boolean inputClipped() { return chain.inputClipped; }
 
     /** Codes one processed CHUNK; a finished one-second block goes to the sink. */
     public void code(short[] pcm, Sink sink) throws java.io.IOException {
