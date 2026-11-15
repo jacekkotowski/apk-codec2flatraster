@@ -56,6 +56,32 @@ const { chromium } = require('playwright');
     await p.screenshot({ path: process.argv[3] + '/ui_edit.png' });
     await p.close();
   }
+  // Self-test panel: the button opens it, its buttons call the bridge, the report shows, SHARE waits for a finished report.
+  {
+    const p = await b.newPage({ viewport: { width: 412, height: 700 } });
+    p.on('pageerror', e => errors.push('selftest: ' + e.message));
+    await p.addInitScript(() => {
+      window.calls = []; window.T = { on: false, done: false, step: '', text: '' };
+      window.Android = { status: () => '{"camera":true,"avail":"0"}', list: () => '[]', voiceModes: () => '["best","balanced","small","smallest"]', config(){}, newPalette(){},
+        startRec(){}, stopRec(){}, play(){}, stopPlay(){}, mp4(){}, share(){}, remove(){}, rename(){ return true },
+        testState: () => JSON.stringify(window.T), testRun(){ window.calls.push('run') }, testClip(){ window.calls.push('clip') }, testStop(){ window.calls.push('stop') }, testShare(){ window.calls.push('share') } };
+    });
+    await p.goto('file://' + process.argv[2]);
+    await p.waitForTimeout(500);
+    const hidden0 = await p.evaluate(() => document.getElementById('tp').hidden);
+    await p.click('#tst'); await p.click('#trun'); await p.click('#tclip');
+    await p.evaluate(() => { window.T = { on: true, done: false, step: 'Video encoders', text: 'Self-test\\nPhone: X' } }); await p.waitForTimeout(1300);
+    const running = await p.evaluate(() => [document.getElementById('trun').hidden, document.getElementById('tstop').hidden, document.getElementById('trep').textContent.includes('Video encoders')].join());
+    await p.evaluate(() => { window.T = { on: false, done: true, step: '', text: 'Self-test\\nEnd of report.' } }); await p.waitForTimeout(1300);
+    const shareOn = await p.evaluate(() => !document.getElementById('tshare').disabled);
+    await p.click('#tshare');
+    const calls = await p.evaluate(() => window.calls.join(' '));
+    console.log('selftest', JSON.stringify({ hidden0, running, shareOn, calls }));
+    if (!hidden0 || running !== 'true,false,true' || !shareOn || calls !== 'run clip share') errors.push('selftest panel: ' + JSON.stringify({ hidden0, running, shareOn, calls }));
+    if (await p.evaluate(() => document.documentElement.scrollWidth > innerWidth)) errors.push('selftest: sticks out sideways');
+    await p.screenshot({ path: process.argv[3] + '/ui_selftest.png' });
+    await p.close();
+  }
   // Voice: DRED levels, default small, and a Codec 2 mode stored by 0.12 falls back to small.
   for (const stored of [null, '1200', 'smallest']) {
     const p = await b.newPage({ viewport: { width: 412, height: 700 } });

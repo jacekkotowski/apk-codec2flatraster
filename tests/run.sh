@@ -28,3 +28,4 @@ a,b=env(x),env(y); n=min(len(a),len(b))-200
 lag=max(range(-100,101),key=lambda d: np.corrcoef(a[100:100+n-100],b[100+d:100+d+n-100])[0,1])
 print(('ok   ' if abs(lag)<=5 else 'FAIL ')+'voice in step with the picture: %d ms off'%lag)
 assert abs(lag)<=5"
+echo "== self-test: voice speed on the real DRED library, picture test on the real filter"; bash selftest/run.sh | tail -4

@@ -159,6 +159,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
     }
 
     @Override protected void onPause() {
+        SelfTestRun.cancel(); // the microphone and the screen-on flag are only good while this screen shows
         stopRecording();
         stopPlayback();
         if (camera != null) { camera.close(); camera = null; cameraOn = false; }
@@ -248,6 +249,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
     }
 
     private void startRecording() {
+        if (SelfTestRun.running()) { notice = "The self-test is running."; return; }
         if (recording) return;
         if (!has(Manifest.permission.CAMERA) || !has(Manifest.permission.RECORD_AUDIO)) {
             pendingStart = true;
@@ -281,6 +283,17 @@ public class MainActivity extends Activity implements CameraSource.Listener {
         audio = new AudioCapture(this, voiceQ, sound.copyLive(), start, skipSilence, (t, d, len) -> w.write(FrvWriter.AUDIO, t, d, 0, len));
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LOCKED);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    }
+
+    /** Starts the self-test or the 30 s test clip. Not while recording or exporting (they use the microphone, the encoder and the processor). The screen stays on meanwhile. */
+    private void startTest(boolean clip) {
+        if (SelfTestRun.running()) return;
+        if (recording || exporting) { notice = "Stop the recording or export first."; return; }
+        if (clip && !has(Manifest.permission.RECORD_AUDIO)) { notice = "Allow the microphone, then press again."; requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_PERM); return; }
+        stopPlayback();
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        Runnable off = () -> runOnUiThread(() -> getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON));
+        if (clip) SelfTestRun.clip(this, sound.source, off); else SelfTestRun.runAll(this, off);
     }
 
     private void stopRecording() {
@@ -466,6 +479,15 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             } catch (Exception ignored) {}
         }
 
+        // ---- self-test (stage 0 of ROADMAP.md): see SelfTestRun ----
+        @JavascriptInterface public String testState() { try { return SelfTestRun.state().toString(); } catch (Exception e) { return "{}"; } }
+        @JavascriptInterface public void testRun() { runOnUiThread(() -> startTest(false)); }
+        @JavascriptInterface public void testClip() { runOnUiThread(() -> startTest(true)); }
+        @JavascriptInterface public void testStop() { SelfTestRun.cancel(); }
+        @JavascriptInterface public void testShare() {
+            runOnUiThread(() -> startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, SelfTestRun.report())
+                    .putExtra(Intent.EXTRA_SUBJECT, "FlatRaster self-test"), "Share report")));
+        }
         @JavascriptInterface public void newPalette() { synchronized (lock) { if (flat != 0) Flat.reset(flat); } } // the next frame rebuilds it and asks for a key picture
         @JavascriptInterface public void startRec() { runOnUiThread(MainActivity.this::startRecording); }
         @JavascriptInterface public void stopRec() { runOnUiThread(MainActivity.this::stopRecording); }
