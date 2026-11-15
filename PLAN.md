@@ -17,6 +17,7 @@ Last updated: 2026-11-14
 | New colours every picture: brand-new palette each picture, each new colour attributed to the nearest previous colour if close enough (0.11) | Filter tested on a computer; cost 5 to 32% more bits than locked colours there. Needs the phone to judge |
 | Exposure and white balance lock while recording | Built, not tested anywhere |
 | Voice: DRED in place of Codec 2 (0.13) | Built and tested on a computer ([PLAN-dred.md](PLAN-dred.md)); not run on a phone |
+| Sound settings as in Codec2 Recorder, Bluetooth and USB microphones, noise sample (0.15) | Page tested against a stub; recording path tested on a computer; not run on a phone |
 | Sending over a narrow link | Not started |
 
 ## What was measured (synthetic clips, AV1 at one quality setting, 320x240)
