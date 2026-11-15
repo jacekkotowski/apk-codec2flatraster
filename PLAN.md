@@ -1,6 +1,14 @@
 # FlatRaster plan
 
-Last updated: 2026-11-14
+Last updated: 2026-11-15
+
+## Start here
+
+- Current version **0.15** on `main`, APK in `dist/`. Since 0.13 the voice is DRED (Codec 2 is gone; `.frv` files from 0.12 or older don't play), 0.14 put the voice in step with the picture, 0.15 gave it the sound settings of Codec2 Recorder. None of 0.2 to 0.15 has been tried on a phone.
+- Next real step: **the owner's phone test of 0.15**: recording with voice, playback in step, SAVE MP4 (its sound is now AAC at 16 kHz, untried on the phone), the sound settings, a Bluetooth microphone.
+- Next to build, no phone needed: sending `.frv` over radio. Take the modem library and file transport from Codec2 Recorder (`third_party/codec2-1.2`, `fdvflags.sh`, `jni/fdvjni.c`, `Fountain`, `RadioLink`); see `PLAN-radio.md` and its 2026-11-14 update. Codec2 Recorder 2.8 also has RADE voice messages (`libvoice.so`, `third_party/rade_c`, `radeflags.sh`); whether FlatRaster wants them is the owner's call.
+- Before stating what exists, fetch and list all branches. Keys: attach `apk-signing-keys`, folder `apk-flatraster`. Build: the Android SDK from Codec2 Recorder's `setup.sh` works here too (`source env.sh` there, then `bash build.sh` here). Run `bash tests/run.sh` before delivering (needs numpy, opencv-python-headless, Playwright).
+- Hand the APK to the owner as a file in the chat as well as in `dist/`, and end the session with this plan updated and the work on `main`.
 
 ## Status
 

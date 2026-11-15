@@ -10,3 +10,5 @@ Rules:
 - Don't hand over a build unless it was built and tested from the current source. State plainly what was not tested on a phone.
 - Raise `versionCode` and the version name with each delivered build.
 - Run `bash tests/run.sh` before delivering.
+- Before stating what exists, fetch and list all branches. Start from `PLAN.md` "Start here".
+- Put each delivered APK in `dist/` (replace the old one, update the README link) and also hand it to the owner as a file in the chat. End every session with `PLAN.md` updated and the work pushed to `main`.
