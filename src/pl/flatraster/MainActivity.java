@@ -103,6 +103,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
         web.getSettings().setJavaScriptEnabled(true);
         web.getSettings().setDomStorageEnabled(true);
         web.getSettings().setBlockNetworkLoads(true);
+        SelfTestRun.restore(this);
         web.addJavascriptInterface(new Bridge(), "Android");
         split = new LinearLayout(this);
         split.addView(preview, new LinearLayout.LayoutParams(0, 0, 1f));
@@ -483,6 +484,12 @@ public class MainActivity extends Activity implements CameraSource.Listener {
         @JavascriptInterface public String testState() { try { return SelfTestRun.state().toString(); } catch (Exception e) { return "{}"; } }
         @JavascriptInterface public void testRun() { runOnUiThread(() -> startTest(false)); }
         @JavascriptInterface public void testClip() { runOnUiThread(() -> startTest(true)); }
+        @JavascriptInterface public void testCopy() {
+            runOnUiThread(() -> {
+                getSystemService(android.content.ClipboardManager.class).setPrimaryClip(android.content.ClipData.newPlainText("Self-test report", SelfTestRun.report()));
+                notice = "Report copied. Paste it where you want it.";
+            });
+        }
         @JavascriptInterface public void testStop() { SelfTestRun.cancel(); }
         @JavascriptInterface public void testShare() {
             runOnUiThread(() -> startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, SelfTestRun.report())

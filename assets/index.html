@@ -55,9 +55,9 @@ button.danger{background:var(--rec);border-color:var(--rec);color:#fff}
   <div id="msg" role="status"></div>
   <div id="more"><button id="tog" aria-expanded="true">Hide settings</button><button id="newpal">Pick colours now</button><button id="tst">Self-test</button></div>
   <div id="tp" hidden>
-   <div id="tpb"><button id="trun">Run self-test</button><button id="tclip">Save test clip</button><button id="tstop" hidden>Stop</button><button id="tshare" disabled>Share report</button></div>
+   <div id="tpb"><button id="trun">Run self-test</button><button id="tclip">Save test clip</button><button id="tstop" hidden>Stop</button><button id="tcopy" disabled>Copy report</button><button id="tshare" disabled>Share report</button></div>
    <pre id="trep">No report yet.</pre>
-   <div id="thelp">Run self-test takes about a minute. Hold the phone still and leave it alone; the screen stays on. It times the voice coder and the picture filter on this phone and asks each video encoder what it really makes from a made-up scene. Save test clip records 30 s of the microphone with no processing: say a few sentences, then keep quiet for 5 s. Both save a file in Download/FlatRaster.</div>
+   <div id="thelp">Run self-test takes about a minute. Hold the phone still and leave it alone; the screen stays on. It times the voice coder and the picture filter on this phone and asks each video encoder what it really makes from a made-up scene. Save test clip records 30 s of the microphone with no processing: say a few sentences, then keep quiet for 5 s. Both save a file in Download/FlatRaster. The report is also kept inside the app: Copy report, switch to your chat, paste.</div>
   </div>
   <div id="set">
    <label>Pictures per second<select id="fps"><option value="0.5">0.5</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="5">5</option></select></label>
@@ -226,7 +226,7 @@ var testOn = false;
 function testTick(){
   if (!A.testState) return;
   var t = JSON.parse(A.testState()); testOn = t.on;
-  $('trun').hidden = t.on; $('tclip').hidden = t.on; $('tstop').hidden = !t.on; $('tshare').disabled = !t.text || t.on;
+  $('trun').hidden = t.on; $('tclip').hidden = t.on; $('tstop').hidden = !t.on; $('tshare').disabled = $('tcopy').disabled = !t.text;
   $('trep').textContent = (t.step ? t.step + '\n\n' : '') + (t.text || 'No report yet.');
 }
 $('tst').onclick = function(){ var open = $('tp').hidden; $('tp').hidden = !open; if (open) testTick(); };
@@ -234,6 +234,7 @@ $('trun').onclick = function(){ A.testRun(); };
 $('tclip').onclick = function(){ A.testClip(); };
 $('tstop').onclick = function(){ A.testStop(); };
 $('tshare').onclick = function(){ A.testShare(); };
+$('tcopy').onclick = function(){ A.testCopy(); };
 setInterval(function(){ if (!$('tp').hidden) testTick(); }, 1000);
 push(); tick(); setInterval(tick, 300);
 </script></body></html>

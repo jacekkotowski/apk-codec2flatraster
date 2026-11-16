@@ -64,7 +64,7 @@ const { chromium } = require('playwright');
       window.calls = []; window.T = { on: false, done: false, step: '', text: '' };
       window.Android = { status: () => '{"camera":true,"avail":"0"}', list: () => '[]', voiceModes: () => '["best","balanced","small","smallest"]', config(){}, newPalette(){},
         startRec(){}, stopRec(){}, play(){}, stopPlay(){}, mp4(){}, share(){}, remove(){}, rename(){ return true },
-        testState: () => JSON.stringify(window.T), testRun(){ window.calls.push('run') }, testClip(){ window.calls.push('clip') }, testStop(){ window.calls.push('stop') }, testShare(){ window.calls.push('share') } };
+        testState: () => JSON.stringify(window.T), testRun(){ window.calls.push('run') }, testClip(){ window.calls.push('clip') }, testStop(){ window.calls.push('stop') }, testShare(){ window.calls.push('share') }, testCopy(){ window.calls.push('copy') } };
     });
     await p.goto('file://' + process.argv[2]);
     await p.waitForTimeout(500);
@@ -74,10 +74,10 @@ const { chromium } = require('playwright');
     const running = await p.evaluate(() => [document.getElementById('trun').hidden, document.getElementById('tstop').hidden, document.getElementById('trep').textContent.includes('Video encoders')].join());
     await p.evaluate(() => { window.T = { on: false, done: true, step: '', text: 'Self-test\\nEnd of report.' } }); await p.waitForTimeout(1300);
     const shareOn = await p.evaluate(() => !document.getElementById('tshare').disabled);
-    await p.click('#tshare');
+    await p.click('#tcopy'); await p.click('#tshare');
     const calls = await p.evaluate(() => window.calls.join(' '));
     console.log('selftest', JSON.stringify({ hidden0, running, shareOn, calls }));
-    if (!hidden0 || running !== 'true,false,true' || !shareOn || calls !== 'run clip share') errors.push('selftest panel: ' + JSON.stringify({ hidden0, running, shareOn, calls }));
+    if (!hidden0 || running !== 'true,false,true' || !shareOn || calls !== 'run clip copy share') errors.push('selftest panel: ' + JSON.stringify({ hidden0, running, shareOn, calls }));
     if (await p.evaluate(() => document.documentElement.scrollWidth > innerWidth)) errors.push('selftest: sticks out sideways');
     await p.screenshot({ path: process.argv[3] + '/ui_selftest.png' });
     await p.close();
