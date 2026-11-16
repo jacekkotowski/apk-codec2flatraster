@@ -165,7 +165,9 @@ void flat_gather_info(const Flat *f, int *frames, int *base, int *threshold, int
       gain is not worth showing an older moment (and a sharp edge that moves by half a pixel changes the figure by itself).
       Then the newest frame within a tenth of the sharpest is taken, so the picture is as little behind as it can be.
    3. Each pixel becomes the average of the frames that agree with the chosen one at that pixel. Where something moved they do
-      not agree, and only the chosen frame counts, so nothing is smeared. */
+      not agree, and only the chosen frame counts, so nothing is smeared: no pixel can end up further than the limit from the
+      chosen frame. (Tried and dropped: also leaving out the neighbours of every pixel where a frame disagrees. It kept a moving
+      outline a quarter of a pixel nearer its true place under very strong noise, and gave up nearly all of the gain there.) */
 static void mergeGathered(Flat *f) {
     int n = f->w * f->h, G = f->gathered, order[FLAT_GATHER];
     f->gFrames = G; f->gBase = 0; f->gThr = 0; f->gAvg = 0;
