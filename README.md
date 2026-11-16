@@ -2,11 +2,11 @@
 
 Android app that records low-frame-rate video made flat on purpose (few solid colours, hard edges) so it needs very few bits, together with a DRED voice track (the neural speech coder in Opus). Built so the same packets can later be sent over a narrow link such as HF radio. Everything is stored in one `.frv` file; the app can also save a normal `.mp4`.
 
-Current version: 0.15.1 (0.15 plus a Self-test panel, nothing else changed), with DRED voice and the same sound settings as Codec2 Recorder (microphone, source, level, Denoise on by default, noise sample, filters, voice sensitivity) in place of Codec 2; `.frv` files from 0.12 or older don't play in it. Version 0.1 was reported working on the owner's phone. Not yet tried on a phone: the DRED voice (recording, playback, MP4 export), and everything added since (Flip camera, timed new colours, full-picture interval, skip silence, clean-up strength, repeating movement, still pictures, faces, the new hold rule for smooth borders, exposure lock, border rounding, new colours every picture with a threshold on colour changes). Roadmap and notes in [PLAN.md](PLAN.md).
+Current version: 0.15.2 (0.15 plus a Self-test panel, nothing else changed), with DRED voice and the same sound settings as Codec2 Recorder (microphone, source, level, Denoise on by default, noise sample, filters, voice sensitivity) in place of Codec 2; `.frv` files from 0.12 or older don't play in it. Version 0.1 was reported working on the owner's phone. Not yet tried on a phone: the DRED voice (recording, playback, MP4 export), and everything added since (Flip camera, timed new colours, full-picture interval, skip silence, clean-up strength, repeating movement, still pictures, faces, the new hold rule for smooth borders, exposure lock, border rounding, new colours every picture with a threshold on colour changes). Roadmap and notes in [PLAN.md](PLAN.md).
 
 ## Download
 
-[`dist/FlatRaster-0.15.1.apk`](dist/FlatRaster-0.15.1.apk), signed with the project key, installs over earlier versions.
+[`dist/FlatRaster-0.15.2.apk`](dist/FlatRaster-0.15.2.apk), signed with the project key, installs over earlier versions.
 
 ## How it works
 
