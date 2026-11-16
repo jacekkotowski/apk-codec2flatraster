@@ -46,10 +46,6 @@ void flat_mark_sent(Flat *f);
    boxes that applies to the whole picture. Call before loading a frame. */
 void flat_set_focus(Flat *f, const int *rects, int count, int coarse);
 
-/* Faces first: when the palette is chosen, every pixel inside a focus box counts `weight` times (1 = as any other, up to 16),
-   so a face that fills a small part of the picture still gets its own colours. Takes effect when a palette is next built. */
-void flat_set_face_weight(Flat *f, int weight);
-
 /* Colour tracking: 0 keeps the palette locked between rebuilds. Above 0 the colours are refitted to every picture
    (borders fall as after a new palette), and a shown colour changes only once the fit is more than `threshold` away.
    full 1: the fit runs until settled every picture; 0: it glides towards it. */

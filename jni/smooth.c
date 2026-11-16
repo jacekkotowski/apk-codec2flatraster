@@ -10,7 +10,7 @@
    would give grey, and a grey line would appear wherever grey is also one of the colours).
    Within about one output pixel of that line the two strongest colours are mixed in proportion, which takes the last jaggedness
    off (anti-aliasing). A line one source pixel wide survives, because the bell gives its own pixel two thirds of the weight.
-   Cost: a source cell whose 16 neighbours are all one colour is filled at once; only cells on a border do the sums. */
+   Cost: where the 16 neighbours are all one colour the output is the source pixel; only pixels beside a border do the sums. */
 
 static inline int near(uint32_t a, uint32_t b, int tol) {
     return abs((int)((a >> 16) & 255) - (int)((b >> 16) & 255)) + abs((int)((a >> 8) & 255) - (int)((b >> 8) & 255)) + abs((int)(a & 255) - (int)(b & 255)) <= tol;
@@ -31,42 +31,50 @@ void smooth_upscale(const uint32_t *src, int w, int h, int s, int tol, uint32_t 
         for (int i = 0; i < 4; i++) { wt[k][i] = (int)(b[i] * 1024 + 0.5); sum += wt[k][i]; }
         wt[k][1] += 1024 - sum;
     }
-    for (int y = 0; y < h; y++) for (int ky = 0; ky < s; ky++) {
-        int y0 = y + lean[ky] - 1;                    /* first of the four source rows */
-        uint32_t *out = dst + (size_t)(y * s + ky) * ow;
-        for (int x = 0; x < w; x++) for (int kx = 0; kx < s; kx++) {
-            int x0 = x + lean[kx] - 1;
-            uint32_t px[16]; int same = 1;
-            for (int j = 0; j < 4; j++) {
-                int yy = y0 + j; yy = yy < 0 ? 0 : yy >= h ? h - 1 : yy;
-                for (int i = 0; i < 4; i++) {
-                    int xx = x0 + i; xx = xx < 0 ? 0 : xx >= w ? w - 1 : xx;
-                    px[4 * j + i] = src[yy * w + xx];
-                    if (px[4 * j + i] != px[0]) same = 0;
+    for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) {
+        /* The s*s output pixels of one source pixel see one of four 4x4 neighbourhoods (leaning left or right, up or down).
+           Each is fetched once, and one that is all one colour (within tol) is flat: its output pixels are the source pixel. */
+        uint32_t own = src[y * w + x], nb[4][16]; int state[4] = {0, 0, 0, 0}; /* 0 not looked at, 1 flat, 2 has a border */
+        for (int ky = 0; ky < s; ky++) {
+            uint32_t *out = dst + (size_t)(y * s + ky) * ow + (size_t)x * s;
+            for (int kx = 0; kx < s; kx++) {
+                int q = (lean[ky] + 1) * 2 + lean[kx] + 1;
+                uint32_t *px = nb[q];
+                if (!state[q]) {
+                    int y0 = y + lean[ky] - 1, x0 = x + lean[kx] - 1, same = 1;
+                    for (int j = 0; j < 4; j++) {
+                        int yy = y0 + j; yy = yy < 0 ? 0 : yy >= h ? h - 1 : yy;
+                        for (int i = 0; i < 4; i++) {
+                            int xx = x0 + i; xx = xx < 0 ? 0 : xx >= w ? w - 1 : xx;
+                            uint32_t c = px[4 * j + i] = src[yy * w + xx];
+                            if (c != own && !(tol && near(c, own, tol))) same = 0;
+                        }
+                    }
+                    state[q] = same ? 1 : 2;
                 }
+                if (state[q] == 1) { out[kx] = own; continue; }
+                /* group the 16 pixels by colour; each group keeps its weight and its weighted mean colour */
+                uint32_t rep[16]; int gw[16], gr[16], gg[16], gb[16], groups = 0;
+                for (int j = 0; j < 4; j++) for (int i = 0; i < 4; i++) {
+                    uint32_t c = px[4 * j + i]; int wq = wt[ky][j] * wt[kx][i], g = 0;
+                    while (g < groups && !(rep[g] == c || (tol && near(rep[g], c, tol)))) g++;
+                    if (g == groups) { rep[g] = c; gw[g] = gr[g] = gg[g] = gb[g] = 0; groups++; }
+                    gw[g] += wq >> 6; /* weights now add up to 16384 */
+                    gr[g] += (wq >> 6) * (int)((c >> 16) & 255); gg[g] += (wq >> 6) * (int)((c >> 8) & 255); gb[g] += (wq >> 6) * (int)(c & 255);
+                }
+                int a = 0, b = -1;
+                for (int g = 1; g < groups; g++) if (gw[g] > gw[a]) a = g;
+                for (int g = 0; g < groups; g++) if (g != a && (b < 0 || gw[g] > gw[b])) b = g;
+                int ra = gr[a] / (gw[a] ? gw[a] : 1), ga = gg[a] / (gw[a] ? gw[a] : 1), ba = gb[a] / (gw[a] ? gw[a] : 1);
+                if (b < 0 || gw[b] == 0) { out[kx] = 0xff000000u | (uint32_t)ra << 16 | (uint32_t)ga << 8 | (uint32_t)ba; continue; }
+                /* mix the two strongest near the line where they are equal: full colour once ahead by 1/(1.2 s) of the weight,
+                   which is about one output pixel either side of the line */
+                int t = 512 + (gw[a] - gw[b]) * 6 * s / 160; /* 0.5 + 0.6 s (wa - wb), in 1024ths, weights in 16384ths */
+                if (t > 1024) t = 1024;
+                int rb = gr[b] / gw[b], gb2 = gg[b] / gw[b], bb = gb[b] / gw[b];
+                int r = (ra * t + rb * (1024 - t) + 512) >> 10, g2 = (ga * t + gb2 * (1024 - t) + 512) >> 10, bl = (ba * t + bb * (1024 - t) + 512) >> 10;
+                out[kx] = 0xff000000u | (uint32_t)r << 16 | (uint32_t)g2 << 8 | (uint32_t)bl;
             }
-            if (same) { *out++ = px[0]; continue; }
-            /* group the 16 pixels by colour; each group keeps its weight and its weighted mean colour */
-            uint32_t rep[16]; int gw[16], gr[16], gg[16], gb[16], groups = 0;
-            for (int j = 0; j < 4; j++) for (int i = 0; i < 4; i++) {
-                uint32_t c = px[4 * j + i]; int q = wt[ky][j] * wt[kx][i], g = 0;
-                while (g < groups && !(rep[g] == c || (tol && near(rep[g], c, tol)))) g++;
-                if (g == groups) { rep[g] = c; gw[g] = gr[g] = gg[g] = gb[g] = 0; groups++; }
-                gw[g] += q >> 6; /* weights now add up to 16384 */
-                gr[g] += (q >> 6) * (int)((c >> 16) & 255); gg[g] += (q >> 6) * (int)((c >> 8) & 255); gb[g] += (q >> 6) * (int)(c & 255);
-            }
-            int a = 0, b = -1;
-            for (int g = 1; g < groups; g++) if (gw[g] > gw[a]) a = g;
-            for (int g = 0; g < groups; g++) if (g != a && (b < 0 || gw[g] > gw[b])) b = g;
-            int ra = gr[a] / (gw[a] ? gw[a] : 1), ga = gg[a] / (gw[a] ? gw[a] : 1), ba = gb[a] / (gw[a] ? gw[a] : 1);
-            if (b < 0 || gw[b] == 0) { *out++ = 0xff000000u | (uint32_t)ra << 16 | (uint32_t)ga << 8 | (uint32_t)ba; continue; }
-            /* mix the two strongest near the line where they are equal: full colour once ahead by 1/(1.2 s) of the weight,
-               which is about one output pixel either side of the line */
-            int t = 512 + (gw[a] - gw[b]) * 6 * s / 160; /* 0.5 + 0.6 s (wa - wb), in 1024ths, weights in 16384ths */
-            if (t > 1024) t = 1024;
-            int rb = gr[b] / gw[b], gb2 = gg[b] / gw[b], bb = gb[b] / gw[b];
-            int r = (ra * t + rb * (1024 - t) + 512) >> 10, g2 = (ga * t + gb2 * (1024 - t) + 512) >> 10, bl = (ba * t + bb * (1024 - t) + 512) >> 10;
-            *out++ = 0xff000000u | (uint32_t)r << 16 | (uint32_t)g2 << 8 | (uint32_t)bl;
         }
     }
 }

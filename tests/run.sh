@@ -5,6 +5,8 @@ cd "$(dirname "$0")"
 T=$(mktemp -d)
 echo "== filter"; python3 flat_test.py 2>&1 | grep -vE "^Svt|^\[lib"
 echo "== repeating movement"; python3 motion_test.py 2>&1 | grep -vE "^Svt|^\[lib"
+echo "== camera frames joined between pictures"; python3 cam_test.py 2>&1 | grep -vE "^Svt|^\[lib"
+echo "== smooth enlarging for the screen"; python3 smooth_test.py 2>&1 | grep -vE "^Svt|^\[lib"
 echo "== borders under camera drift"; python3 border_test.py
 echo "== borders around soft moving things"; python3 soft_test.py
 echo "== focus boxes"; python3 focus_test.py 2>&1 | grep -vE "^Svt|^\[lib"

@@ -13,6 +13,7 @@ public class ST {
         SelfTest.dredSpeed(LOG, 10);
         java.util.List<byte[]> frames = PictureTest.filterSpeed(LOG, 30);
         check(frames.size() == 30 && frames.get(0).length == 320 * 240 * 3 / 2, "30 pictures of the encoder's size");
+        check(Flat.viewFactor(160, 120) == 6 && Flat.viewFactor(320, 240) == 4 && Flat.viewFactor(480, 360) == 3 && Flat.viewFactor(176, 240) == 5, "the screen picture is enlarged to about 1200 pixels");
         // Posterized: the luma plane holds few distinct values (8 colours, so 8 luma values at most plus rounding of the limited-range conversion).
         java.util.HashSet<Integer> lum = new java.util.HashSet<>(); byte[] f = frames.get(29); for (int i = 0; i < 320 * 240; i++) lum.add(f[i] & 255);
         check(lum.size() <= 8, "picture is posterized: " + lum.size() + " luma values");

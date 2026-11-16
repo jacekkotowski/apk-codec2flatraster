@@ -25,7 +25,6 @@ struct Flat {
     uint8_t *ring;           /* camera frames gathered for the next picture: FLAT_GATHER slots of y, u, v; NULL until first used */
     int gathered, slot;      /* slots filled, and where the next frame goes */
     int gFrames, gBase, gThr, gAvg; /* what the last merge did, for flat_gather_info */
-    int faceWeight;          /* how many times a pixel in a focus box counts when the palette is chosen */
     int trackFull;           /* 2: brand-new palette every picture, matched to the previous colours; 1: refit from the previous palette; 0: glide */
     int track;               /* 0: palette locked. Else: refit every picture; a shown colour follows once the fit is this far from it */
     double baseErr;
@@ -52,7 +51,6 @@ Flat *flat_create(int w, int h, int colors) {
 }
 
 void flat_destroy(Flat *f) { if (f) { free(f->y); free(f->cnt); free(f->ring); free(f); } }
-void flat_set_face_weight(Flat *f, int weight) { f->faceWeight = weight < 1 ? 1 : weight > 16 ? 16 : weight; }
 void flat_reset(Flat *f) { f->have = 0; }
 void flat_set_track(Flat *f, int threshold, int full) { f->track = threshold < 0 ? 0 : threshold; f->trackFull = full < 0 ? 0 : full > 2 ? 2 : full; }
 void flat_set_round(Flat *f, int passes) { f->round = passes < 0 ? 0 : passes > 2 ? 2 : passes; }
@@ -256,12 +254,10 @@ static void buildMerge(Flat *f);
 static void buildPalette(Flat *f, int seeded) {
     int s = sampleStep(f), w = f->w, h = f->h, k = f->k, n = 0;
     int cap = (w / s + 1) * (h / s + 1);
-    uint8_t *sm = malloc((size_t)cap * 3), *wt = malloc((size_t)cap); int *dmin = malloc(sizeof(int) * cap);
-    if (!sm || !dmin || !wt) { free(sm); free(dmin); free(wt); return; }
+    uint8_t *sm = malloc((size_t)cap * 3); int *dmin = malloc(sizeof(int) * cap);
+    if (!sm || !dmin) { free(sm); free(dmin); return; }
     for (int yy = s / 2; yy < h; yy += s) for (int x = s / 2; x < w; x += s) {
-        int o = yy * w + x; sm[3 * n] = f->y[o]; sm[3 * n + 1] = f->u[o]; sm[3 * n + 2] = f->v[o];
-        wt[n] = (uint8_t)(f->faceWeight > 1 && f->focus[o] ? f->faceWeight : 1); /* faces first: see flat_set_face_weight */
-        n++;
+        int o = yy * w + x; sm[3 * n] = f->y[o]; sm[3 * n + 1] = f->u[o]; sm[3 * n + 2] = f->v[o]; n++;
     }
     double cy[FLAT_MAX_COLORS], cu[FLAT_MAX_COLORS], cv[FLAT_MAX_COLORS];
     if (seeded) for (int c = 0; c < k; c++) { cy[c] = f->ty_[c]; cu[c] = f->tu_[c]; cv[c] = f->tv_[c]; }
@@ -289,9 +285,8 @@ static void buildPalette(Flat *f, int seeded) {
                 double d = dy * dy + 2 * (du * du + dv * dv);
                 if (d < bd) { bd = d; best = c; }
             }
-            int q = wt[i];
-            ay[best] += q * sm[3 * i]; au[best] += q * sm[3 * i + 1]; av[best] += q * sm[3 * i + 2]; cnt[best] += q;
-            if (bd * q > fd) { fd = bd * q; far = i; }
+            ay[best] += sm[3 * i]; au[best] += sm[3 * i + 1]; av[best] += sm[3 * i + 2]; cnt[best]++;
+            if (bd > fd) { fd = bd; far = i; }
         }
         for (int c = 0; c < k; c++) {
             if (cnt[c]) { cy[c] = ay[c] / cnt[c]; cu[c] = au[c] / cnt[c]; cv[c] = av[c] / cnt[c]; }
@@ -306,7 +301,7 @@ static void buildPalette(Flat *f, int seeded) {
     }
     for (int c = 0; c < k; c++) { f->py[c] = clamp8((int)(cy[c] + 0.5)); f->pu[c] = clamp8((int)(cu[c] + 0.5)); f->pv[c] = clamp8((int)(cv[c] + 0.5)); }
     for (int c = 0; c < k; c++) { f->ty_[c] = cy[c]; f->tu_[c] = cu[c]; f->tv_[c] = cv[c]; f->qy[c] = f->py[c]; f->qu[c] = f->pu[c]; f->qv[c] = f->pv[c]; }
-    free(sm); free(dmin); free(wt);
+    free(sm); free(dmin);
     buildMerge(f);
 }
 

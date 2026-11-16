@@ -55,6 +55,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
     private ImageView preview;
     private LinearLayout split;
     private Bitmap bmp;
+    private boolean bmpSmooth;
     private CameraSource camera;
     private DisplayManager.DisplayListener displayListener;
 
@@ -62,6 +63,11 @@ public class MainActivity extends Activity implements CameraSource.Listener {
     private volatile int sizeIdx = 2, colors = 8, smooth = 2, kbps = 5, wantCodec = -1, voiceQ = VoiceBridge.DEFAULT_Q, palSec = 0, keySec = 10, cleanLvl = 1, ignoreLvl = 0, stillLvl = 0, focusLvl = 0, faceCount = 0, roundLvl = 1, trackThr = 16;
     private volatile double fps = 2;
     private volatile boolean front, portrait = true, skipSilence, lockLight;
+    /** Join the camera's frames between two pictures into the picture (less noise, the sharpest frame); show the picture enlarged smoothly. */
+    private volatile boolean joinFrames = true, smoothView = true;
+    private volatile int joinInfo;
+    private long lastCamNs; // when the camera last gave any frame; guarded by lock
+    private final java.util.concurrent.ConcurrentLinkedQueue<int[]> bigPool = new java.util.concurrent.ConcurrentLinkedQueue<>();
     /** Codec2 Recorder's sound settings, set from the page. */
     private final SoundSettings sound = new SoundSettings();
     private static volatile boolean idleSampling;
@@ -183,11 +189,31 @@ public class MainActivity extends Activity implements CameraSource.Listener {
         if (camera != null) camera.close();
         camera = new CameraSource(this);
         camera.setFps(fps);
+        camera.setGather(joinFrames);
         camera.setDeviceDegrees(getWindowManager().getDefaultDisplay().getRotation() * 90);
         camera.open(this, front);
     }
 
     @Override public void cameraError(String message) { cameraOn = false; notice = message; }
+
+    /** Border rounding looks at 5 x 5 pixels. In the smallest picture that is wider than an eye, and it wipes eyes and mouth out
+     *  (measured, tests/smooth_test.py and PLAN.md: the face is 5.3% off the truth with it, 3.3% without), so it is left out there. */
+    static int roundFor(int w, int h, int level) { return Math.min(w, h) < 150 ? 0 : level; }
+
+    /** Camera thread: a frame between two pictures. The filter keeps the last six and joins them into the next picture. */
+    @Override public void extra(Image img, int rotation, boolean mirror, long timeNs) {
+        if (player != null && !recording) return;
+        synchronized (lock) {
+            if (flat == 0 || !joinFrames) return;
+            int[] s = SIZES[sizeIdx];
+            if (!recording && (fw != (portrait ? s[1] : s[0]) || fh != (portrait ? s[0] : s[1]) || fk != colors)) return; // the filter is about to be rebuilt
+            if (timeNs - lastCamNs > 1_000_000_000L) Flat.clearGathered(flat); // the camera paused: what was gathered is stale
+            lastCamNs = timeNs;
+            Image.Plane[] p = img.getPlanes();
+            Flat.gather(flat, p[0].getBuffer(), p[0].getRowStride(), p[1].getBuffer(), p[2].getBuffer(), p[1].getRowStride(), p[1].getPixelStride(),
+                    img.getWidth(), img.getHeight(), rotation, mirror);
+        }
+    }
 
     /** Camera thread: posterize the frame, show it, and encode it while recording. */
     @Override public void frame(Image img, int rotation, boolean mirror, long timeNs, int[] faces) {
@@ -208,13 +234,16 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             // Faces: full colours inside the boxes, fewer colours everywhere else.
             int focus = focusLvl, nFaces = focus > 0 && faces != null ? faces.length / 4 : 0;
             Flat.setFocus(flat, faces, nFaces, focus);
-            Flat.setRound(flat, roundLvl);
+            Flat.setRound(flat, roundFor(fw, fh, roundLvl));
+            if (!joinFrames || timeNs - lastCamNs > 1_000_000_000L) Flat.clearGathered(flat);
+            lastCamNs = timeNs;
             Flat.setTrack(flat, palSec < 0 ? trackThr : 0, 2); // palSec -1: a new palette every picture, matched to the previous colours
             faceCount = nFaces;
             Image.Plane[] p = img.getPlanes();
             int r = Flat.process(flat, p[0].getBuffer(), p[0].getRowStride(), p[1].getBuffer(), p[2].getBuffer(), p[1].getRowStride(), p[1].getPixelStride(),
                     img.getWidth(), img.getHeight(), rotation, mirror, smooth, HOLD[cleanLvl - 1], cleanLvl, ignoreLvl, i420, argb);
             if (r < 0) return;
+            joinInfo = Flat.gatherInfo(flat);
             cameraOn = true;
             if (r == 1) { // the palette was just rebuilt, by the timer or because the scene stopped fitting it
                 lastPalNs = timeNs;
@@ -232,20 +261,33 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             copy = argb.clone(); w = fw; h = fh;
         }
         if (fail != null) { final String f = fail; runOnUiThread(() -> { stopRecording(); notice = f; }); }
-        show(copy, w, h);
+        show(copy, w, h, 0);
     }
 
-    /** Draws a picture with hard pixel edges: no smoothing when it is scaled up. */
-    private void show(final int[] px, final int w, final int h) {
+    /** Draws a picture on the screen. Smooth: enlarged here so that borders between colours run as smooth lines (jni/smooth.c);
+     *  otherwise as it is, with hard pixel edges. tol: 0 for the filter's own picture, about 40 for one decoded from video,
+     *  where a flat colour comes back as slightly different values. Called on the camera or the player thread. */
+    private void show(final int[] px, final int w, final int h, int tol) {
+        final boolean smooth = smoothView;
+        final int f = smooth ? Flat.viewFactor(w, h) : 1, bw = w * f, bh = h * f;
+        final int[] out;
+        if (smooth) {
+            int[] big = bigPool.poll();
+            if (big == null || big.length != bw * bh) big = new int[bw * bh];
+            Flat.upscale(px, w, h, f, tol, big);
+            out = big;
+        } else out = px;
         runOnUiThread(() -> {
-            if (bmp == null || bmp.getWidth() != w || bmp.getHeight() != h) {
-                bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+            if (bmp == null || bmp.getWidth() != bw || bmp.getHeight() != bh || bmpSmooth != smooth) {
+                bmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);
+                bmpSmooth = smooth;
                 BitmapDrawable d = new BitmapDrawable(getResources(), bmp);
-                d.setFilterBitmap(false);
+                d.setFilterBitmap(smooth); // blocks stay hard-edged when the screen scales them; the smooth picture is scaled softly
                 preview.setImageDrawable(d);
             }
-            bmp.setPixels(px, 0, w, 0, 0, w, h);
+            bmp.setPixels(out, 0, bw, 0, 0, bw, bh);
             preview.invalidate();
+            if (smooth && bigPool.size() < 2) bigPool.offer(out); // the array can be used again
         });
     }
 
@@ -319,7 +361,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
         playName = f.getName();
         final Player[] self = new Player[1];
         self[0] = player = new Player(f, new Player.View() {
-            @Override public void picture(int[] px, int w, int h) { if (player == self[0]) show(px, w, h); }
+            @Override public void picture(int[] px, int w, int h) { if (player == self[0]) show(px, w, h, 40); }
             @Override public void finished(String error) {
                 if (error != null) notice = error;
                 if (player == self[0]) { player = null; playName = null; }
@@ -388,6 +430,8 @@ public class MainActivity extends Activity implements CameraSource.Listener {
                 o.put("avail", avail).put("w", w).put("h", h);
                 CameraSource cam = camera;
                 o.put("focus", focusLvl > 0).put("faces", faceCount).put("faceOk", cam != null && cam.faceSupported);
+                int ji = joinInfo;
+                o.put("joined", joinFrames ? ji & 255 : 0).put("joinBase", (ji >> 8) & 255).put("joinLimit", ji >> 16).put("roundOff", roundLvl > 0 && roundFor(w, h, roundLvl) == 0);
                 FrvWriter wr = writer; AudioCapture a = audio;
                 if (rec && wr != null) {
                     double sec = Math.max(0.001, (System.nanoTime() - recStartNs) / 1e9);
@@ -451,6 +495,9 @@ public class MainActivity extends Activity implements CameraSource.Listener {
                 focusLvl = Math.max(0, Math.min(2, o.optInt("focus", focusLvl)));
                 roundLvl = Math.max(0, Math.min(2, o.optInt("round", roundLvl)));
                 trackThr = Math.max(1, Math.min(60, o.optInt("thr", trackThr)));
+                smoothView = o.optBoolean("view", smoothView);
+                final boolean join = o.optBoolean("join", joinFrames);
+                if (join != joinFrames) { joinFrames = join; runOnUiThread(() -> { if (camera != null) camera.setGather(join); }); }
                 if (recording) return;
                 sizeIdx = Math.max(0, Math.min(SIZES.length - 1, o.optInt("size", sizeIdx)));
                 colors = Math.max(2, Math.min(32, o.optInt("colors", colors)));

@@ -27,6 +27,8 @@ final class CameraSource {
         /** The image is closed after this returns. rotation: degrees clockwise to make the picture upright. */
         /** faces: boxes of x0,y0,x1,y1 in the image's own pixels, already widened to head and shoulders; empty if none. */
         void frame(Image img, int rotation, boolean mirror, long timeNs, int[] faces);
+        /** A camera frame between two pictures (only while setGather is on). The image is closed after this returns. */
+        void extra(Image img, int rotation, boolean mirror, long timeNs);
         void cameraError(String message);
     }
 
@@ -45,6 +47,7 @@ final class CameraSource {
     private CaptureRequest.Builder request;
     private CameraCaptureSession.CaptureCallback callback;
     private volatile boolean lock;
+    private volatile boolean gather;
     /** True if this camera reports faces itself (most do). */
     volatile boolean faceSupported;
     private volatile int[] faces = new int[0];
@@ -54,6 +57,8 @@ final class CameraSource {
     CameraSource(Listener l) { listener = l; thread.start(); handler = new Handler(thread.getLooper()); }
 
     void setFps(double f) { fps = Math.max(0.2, Math.min(15, f)); }
+    /** Also hand over the frames between two pictures (Listener.extra), so the filter can join them into the next picture. */
+    void setGather(boolean on) { gather = on; }
     /** How far the phone is turned from its natural position: 0, 90, 180 or 270. */
     void setDeviceDegrees(int d) { deviceDegrees = d; }
 
@@ -133,9 +138,12 @@ final class CameraSource {
             img = r.acquireLatestImage();
             if (img == null || closed) return;
             long now = System.nanoTime();
-            if (now - lastNs < (long) (1e9 / fps) - 5_000_000L) return; // not due yet: drop the frame
-            lastNs = now;
             int rot = front ? (sensorDegrees + deviceDegrees) % 360 : (sensorDegrees - deviceDegrees + 360) % 360;
+            if (now - lastNs < (long) (1e9 / fps) - 5_000_000L) { // not due yet: the frame is joined into the next picture, or dropped
+                if (gather) listener.extra(img, rot, false, now);
+                return;
+            }
+            lastNs = now;
             listener.frame(img, rot, false, now, faces); // front camera is not mirrored: the recording shows the scene as it is
         } catch (IllegalStateException ignored) {
         } finally { if (img != null) img.close(); }

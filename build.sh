@@ -15,7 +15,7 @@ for pair in "arm64-v8a aarch64-linux-android29" "armeabi-v7a armv7a-linux-androi
  (
  # DRED coder and player (Opus 1.6.1, flags in opusflags.sh), with its JNI file (bound to pl.dyktafon.DredLib).
  $TC/clang --target=$2 $OPUSFLAGS -DNDEBUG -fPIC -shared -fvisibility=hidden -Wl,-z,max-page-size=16384 -Wl,--no-undefined -o $O/lib/$1/libdred.so jni/dredjni.c $OPUSSRCS -lm -llog 2>&1 | grep -E "error|undefined" | head -8
- $TC/clang --target=$2 $FLAGS -Wall -o $O/lib/$1/libflat.so jni/flatjni.c jni/flat.c -lm
+ $TC/clang --target=$2 $FLAGS -Wall -o $O/lib/$1/libflat.so jni/flatjni.c jni/flat.c jni/smooth.c -lm
  $TC/llvm-strip --strip-unneeded $O/lib/$1/libdred.so $O/lib/$1/libflat.so
  ) > $O/lib-$1.log 2>&1 &
 done

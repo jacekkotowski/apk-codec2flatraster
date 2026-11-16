@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="pl.flatraster" android:versionCode="17" android:versionName="0.15.2">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="pl.flatraster" android:versionCode="18" android:versionName="0.16">
   <uses-permission android:name="android.permission.CAMERA"/>
   <uses-permission android:name="android.permission.RECORD_AUDIO"/>
   <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>

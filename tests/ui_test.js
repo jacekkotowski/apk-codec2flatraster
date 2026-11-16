@@ -56,6 +56,37 @@ const { chromium } = require('playwright');
     await p.screenshot({ path: process.argv[3] + '/ui_edit.png' });
     await p.close();
   }
+  // 0.16: camera frames are joined and the picture is shown smooth by default; both settings reach the app; the status line says what was joined.
+  {
+    const p = await b.newPage({ viewport: { width: 412, height: 700 } });
+    p.on('pageerror', e => errors.push('picture: ' + e.message));
+    await p.addInitScript(() => {
+      window.calls = [];
+      window.Android = { status: () => '{"camera":true,"avail":"0","w":160,"h":120,"joined":6,"joinBase":2,"roundOff":true}', list: () => '[]', voiceModes: () => '["best","balanced","small","smallest"]',
+        config: (j) => window.calls.push(j), newPalette(){}, startRec(){}, stopRec(){}, play(){}, stopPlay(){}, mp4(){}, share(){}, remove(){}, rename(){ return true } };
+    });
+    await p.goto('file://' + process.argv[2]);
+    await p.waitForTimeout(700);
+    await p.selectOption('#join', '0'); await p.selectOption('#view', '0');
+    const r = await p.evaluate(() => ({ first: JSON.parse(window.calls.length ? window.calls[0] : '{}'), last: JSON.parse(window.calls[window.calls.length - 1] || '{}'),
+      rate: document.getElementById('rate').textContent, round: document.getElementById('round').options[1].textContent }));
+    console.log('picture', JSON.stringify({ rate: r.rate, round: r.round, join: r.last.join, view: r.last.view }));
+    if (r.last.join !== false || r.last.view !== false) errors.push('picture: switching Camera frames and Picture on screen off did not reach the app');
+    if (!/7 camera frames joined/.test(r.rate) || !/sharper earlier/.test(r.rate)) errors.push('picture: the status line does not say what was joined: ' + r.rate);
+    if (!/not at this size/.test(r.round)) errors.push('picture: Borders does not say that rounding is left out at 160 x 120');
+    await p.close();
+  }
+  {
+    const p = await b.newPage({ viewport: { width: 412, height: 700 } });
+    await p.addInitScript(() => { window.calls = []; window.Android = { status: () => '{"camera":true,"avail":"0"}', list: () => '[]', voiceModes: () => '["best","balanced","small","smallest"]',
+      config: (j) => window.calls.push(j), newPalette(){}, startRec(){}, stopRec(){}, play(){}, stopPlay(){}, mp4(){}, share(){}, remove(){}, rename(){ return true } }; });
+    await p.goto('file://' + process.argv[2]);
+    await p.waitForTimeout(500);
+    await p.selectOption('#fps', '1');
+    const c = await p.evaluate(() => JSON.parse(window.calls[window.calls.length - 1] || '{}'));
+    if (c.join !== true || c.view !== true) errors.push('picture: Camera frames and Picture on screen are not on by default: ' + JSON.stringify({ join: c.join, view: c.view }));
+    await p.close();
+  }
   // Self-test panel: the button opens it, its buttons call the bridge, the report shows, SHARE waits for a finished report.
   {
     const p = await b.newPage({ viewport: { width: 412, height: 700 } });

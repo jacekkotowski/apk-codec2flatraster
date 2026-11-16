@@ -37,6 +37,29 @@ final class PictureTest {
         return f;
     }
 
+    /** 0.16: the time of the two new steps. Storing a camera frame for joining happens for every frame the camera makes (15 to 30 a second),
+     *  so it must be a few milliseconds; enlarging the picture smoothly happens once per picture shown. */
+    private static void extraSpeed(SelfTest.Log log, long h, ByteBuffer y, ByteBuffer u, ByteBuffer v, int[] argb) {
+        java.util.Random noise = new java.util.Random(6);
+        double gather = 0, join = 0; int info = 0; byte[] i420 = new byte[OUT_W * OUT_H * 3 / 2];
+        final int rounds = 4, per = 6;
+        for (int r = 0; r < rounds && !log.cancelled(); r++) {
+            for (int k = 0; k <= per; k++) {
+                byte[] f = scene(60 + r, noise);
+                y.clear(); y.put(f, 0, SRC_W * SRC_H); y.rewind(); u.clear(); u.put(f, SRC_W * SRC_H, SRC_W * SRC_H / 4); u.rewind(); v.clear(); v.put(f, SRC_W * SRC_H * 5 / 4, SRC_W * SRC_H / 4); v.rewind();
+                long a = System.nanoTime();
+                if (k < per) { Flat.gather(h, y, SRC_W, u, v, SRC_W / 2, 1, SRC_W, SRC_H, 0, false); gather += (System.nanoTime() - a) / 1e6; }
+                else { Flat.process(h, y, SRC_W, u, v, SRC_W / 2, 1, SRC_W, SRC_H, 0, false, 2, 12, 1, 0, i420, argb); join += (System.nanoTime() - a) / 1e6; info = Flat.gatherInfo(h); }
+            }
+        }
+        int f = Flat.viewFactor(OUT_W, OUT_H); int[] big = new int[OUT_W * f * OUT_H * f];
+        long a = System.nanoTime();
+        for (int r = 0; r < rounds; r++) Flat.upscale(argb, OUT_W, OUT_H, f, 0, big);
+        double up = (System.nanoTime() - a) / 1e6 / rounds;
+        log.line(SelfTest.f("Joining camera frames: %.1f ms to store one frame, %.1f ms for a picture made from %d frames (noise limit %d). Enlarging %dx%d %d times for the screen: %.1f ms.",
+                gather / (rounds * per), join / rounds, (info & 255) + 1, info >> 16, OUT_W, OUT_H, f, up));
+    }
+
     /** Runs frames pictures through the filter at the app's defaults (320 x 240, 8 colours, smoothing 2, clean-up 1, borders rounded).
      *  Returns the posterized I420 pictures for the encoders. */
     static List<byte[]> filterSpeed(SelfTest.Log log, int frames) {
@@ -64,6 +87,7 @@ final class PictureTest {
             log.line(SelfTest.f("Posterize filter, camera frame %dx%d to %dx%d, 8 colours: %.1f ms a picture on average, %.1f ms at worst (first picture %.1f ms), palette rebuilt %d times in %d pictures.",
                     SRC_W, SRC_H, OUT_W, OUT_H, total / n, worst, firstMs, palettes, out.size()));
             log.line(SelfTest.f("The filter alone could make %.0f pictures a second; the app's default is 2.", 1000 / Math.max(0.01, total / n)));
+            extraSpeed(log, h, y, u, v, argb);
         } finally { Flat.destroy(h); }
         return out;
     }
