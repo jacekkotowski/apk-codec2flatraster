@@ -2,11 +2,11 @@
 
 Android app that records low-frame-rate video made flat on purpose (few solid colours, hard edges) so it needs very few bits, together with a DRED voice track (the neural speech coder in Opus). Built so the same packets can later be sent over a narrow link such as HF radio. Everything is stored in one `.frv` file; the app can also save a normal `.mp4`.
 
-Current version: 0.15.2 (0.15 plus a Self-test panel, nothing else changed), with DRED voice and the same sound settings as Codec2 Recorder (microphone, source, level, Denoise on by default, noise sample, filters, voice sensitivity) in place of Codec 2; `.frv` files from 0.12 or older don't play in it. Version 0.1 was reported working on the owner's phone. Not yet tried on a phone: the DRED voice (recording, playback, MP4 export), and everything added since (Flip camera, timed new colours, full-picture interval, skip silence, clean-up strength, repeating movement, still pictures, faces, the new hold rule for smooth borders, exposure lock, border rounding, new colours every picture with a threshold on colour changes). Roadmap and notes in [PLAN.md](PLAN.md).
+Current version: 0.16. New in it, built and tested on a computer only: the camera's frames between two stored pictures are joined into the picture (less noise, and the sharpest frame is used), the picture is shown enlarged with smooth borders instead of blocks (live and when playing), and border rounding is left out at 160 x 120, where it wiped out eyes and mouths. 0.15.2 before it brought the Self-test panel. The app has DRED voice and the same sound settings as Codec2 Recorder (microphone, source, level, Denoise on by default, noise sample, filters, voice sensitivity) in place of Codec 2; `.frv` files from 0.12 or older don't play in it. Version 0.1 was reported working on the owner's phone. Not yet tried on a phone: the DRED voice (recording, playback, MP4 export), and everything added since (Flip camera, timed new colours, full-picture interval, skip silence, clean-up strength, repeating movement, still pictures, faces, the new hold rule for smooth borders, exposure lock, border rounding, new colours every picture with a threshold on colour changes). Roadmap and notes in [PLAN.md](PLAN.md).
 
 ## Download
 
-[`dist/FlatRaster-0.15.2.apk`](dist/FlatRaster-0.15.2.apk), signed with the project key, installs over earlier versions.
+[`dist/FlatRaster-0.16.apk`](dist/FlatRaster-0.16.apk), signed with the project key, installs over earlier versions.
 
 ## How it works
 
@@ -14,6 +14,8 @@ Current version: 0.15.2 (0.15 plus a Self-test panel, nothing else changed), wit
 - `jni/flat.c` posterizes each frame: edge-preserving smoothing, a colour palette that stays locked between frames (rebuilt when the scene stops fitting it, on the Pick colours now button, every 5 to 60 s, or on every picture if chosen (then each new colour close enough to a colour of the previous picture is shown as that previous colour); each rebuild makes the encoder start a new full picture), small-region cleanup, and a hold so still areas stay identical.
 - Optional, for a phone that stands still: pixels that keep swapping between the same colours (leaves, water) are frozen, and pictures that barely differ from the last stored one are not stored. Both are in `jni/flat.c`, tested by `tests/motion_test.py`.
 - Optional: the camera's own face detection gives boxes; inside them the picture keeps all its colours, outside it gets a half or a quarter of them (`tests/focus_test.py`).
+- Since 0.16 the frames the camera makes between two stored pictures are no longer thrown away: the filter keeps the last six, starts from the sharpest (the newest unless another is clearly sharper) and averages the others in wherever they agree with it to within the camera's noise (`flat_gather` in `jni/flat.c`, tested by `tests/cam_test.py`). Setting: Camera frames.
+- On the screen the picture is enlarged so that borders between colours run as smooth lines, not as blocks (`jni/smooth.c`, tested by `tests/smooth_test.py`). This changes only what is shown, live and when playing; the recording is the same. Setting: Picture on screen.
 - `VideoEncoder` uses the phone's own encoder: AV1 if it has one, else HEVC, else H.264.
 - The voice goes through the Codec2 Recorder 2.7 voice chain at 16 kHz (rumble cut, denoise, level control, limiter) and DRED, one packet per second. Four levels; default DRED small, about 610 bit/s with packet headers (Codec 2 1200 was about 1300). Source VOICE_RECOGNITION, as in Codec2 Recorder 2.4.
 - `.frv` format, version 2: 14-byte header with the DRED bitstream version and level, then packets (setup, key picture, delta picture, audio), each with its own time and CRC16. A damaged packet costs only itself. Details in `FrvWriter.java`.
@@ -31,7 +33,7 @@ A different signing key means a new version can't install over the old one.
 
 ## Tests (on a computer)
 
-`bash tests/run.sh` runs: the filter (colour count, still scenes stay identical, speed), camera-frame rotation and cropping under memory checks, the `.frv` format with damaged files, the controls page, and the voice track (DRED library against its reference, resampler, packets and time line). Needs gcc, a JDK, python3 with numpy and opencv, node with Playwright. `python3 tools/bench.py` compares encoder sizes (x264, x265, AV1) on a clip.
+`bash tests/run.sh` runs: the filter (colour count, still scenes stay identical, speed), joining the camera's frames (noise, a shaken hand), smooth enlarging against a high-resolution truth, camera-frame rotation and cropping under memory checks, the `.frv` format with damaged files, the controls page, and the voice track (DRED library against its reference, resampler, packets and time line). Needs gcc, a JDK, python3 with numpy and opencv, node with Playwright. `python3 tools/bench.py` compares encoder sizes (x264, x265, AV1) on a clip. `bash tools/coder/run.sh` repeats the picture coder measurement of 2026-11-16 (a prototype, not in the app).
 
 ## Layout
 

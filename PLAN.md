@@ -1,14 +1,27 @@
 # FlatRaster plan
 
-Last updated: 2026-11-16 (stage 6a: the picture coder measured on a computer; no change to the app)
+Last updated: 2026-11-16 (0.16: camera frames joined, smooth enlarging; first part of stage 6b)
 
 ## Start here
+
+- **0.16 (2026-11-16) is the first part of stage 6b of `ROADMAP.md`: a better picture from the same bytes, and the case for a smaller picture.** Built and tested on a computer; **nothing in it has run on a phone.** APK: `dist/FlatRaster-0.16.apk`, installs over 0.15.2. What is in it, with the figures, is in "0.16" under "What was measured" below. In short:
+  1. **Camera frames: Join all** (new setting, on). The camera makes 15 to 30 frames a second and the app kept one in every 3 to 60. Now the last six between two pictures are joined into the picture: it starts from the sharpest and averages the rest in where they agree. On the self-test scene: borders 3 to 12% shorter, 1 to 16% fewer bytes depending on noise; with a shaken hand 42% fewer bytes and 20% shorter borders.
+  2. **Picture on screen: Smooth** (new setting, on). The picture is enlarged with smooth borders instead of blocks, live and when playing. It changes nothing in the recording. The face is 9 to 21% nearer the truth than as blocks.
+  3. **Border rounding is left out at 160 x 120.** It wiped out eyes and mouths there (face 4.8% off the truth with it, 2.6% without). The Borders setting says so when that size is chosen.
+  4. **160 x 120 needs 45 to 55% fewer bytes than 320 x 240** (4.1 against 9.1 kB for 30 s with the exact coder, 4.0 against 8.4 with x264, 3.4 against 6.2 with svt-av1), and shown smooth it is 2.6% off the truth where 320 x 240 as blocks was 1.8%. For a radio link the small size is now the one to try first. The default size is not changed.
+  5. Tried and dropped: counting the pixels of the face box several times when the palette is chosen ("faces first", ROADMAP.md 7.2). No gain on the test scene: the camera's box is head and shoulders, and half of it is wall.
+- **What the owner should look at on the phone**, in this order:
+  1. Live picture and playback with Picture on screen Smooth, then Blocks. Is Smooth better? Does the picture stutter or lag behind?
+  2. Camera frames Join all, then Use one, same scene, phone in the hand. Are borders steadier with Join all? The line under the clock says how many frames were joined, and when a sharper earlier one was shown.
+  3. Picture size 160 x 120 against 320 x 240, both Smooth: is the small one good enough to read a face? Record 30 s of each and compare the sizes.
+  4. RUN SELF-TEST again and paste the report: it has a new line with the time the phone needs to store a camera frame and to enlarge a picture. On a computer these are 1.8 ms and 20 ms.
+- **Not done of stage 6b** (ROADMAP.md 7.2, 7.3): local contrast in the face box, a grey palette, crop to the face, holding the eyes still, sketch mode, still background. Crop to the face comes with a caution from stage 6a: a still background costs almost nothing in delta pictures, so cropping saves mainly on full pictures; what a small picture saves is measured in point 4 above.
 
 - **Stage 6a of `ROADMAP.md` is done (2026-11-16, on a computer, nothing in the app changed): the purpose-built picture coder was measured, and by the rule set beforehand it should not be built as the video coder.** A prototype (`tools/coder/flatcoder.py`) codes the posterized pictures exactly. Its full pictures are small (290 bytes for the self-test scene, where the phone's encoders made 900 to 1500), but its delta pictures are bigger than a video encoder's on every moving scene, so 30 s of the self-test scene is 9.1 kB: less than the phone's 11.9 to 18.2 kB, more than the 5.8 to 7.9 kB that computer encoders of the same formats need. Table, limits and recommendation: "Stage 6a" under "What was measured" below. **D8 waits for the owner.** Stages 6b and 6c are not started.
 
 - **Review and big plan for both apps (2026-11-15): `ROADMAP.md` in `apk-codec2-recorder`.** The owner's decisions are in its section 2 (D2 to D10 as recommended; **D1 was decided 2026-11-16: one repository**). For FlatRaster it proposes: one repository with Codec2 Recorder and a shared core; free legibility steps (sharpest picture, averaging, face-first colours, smooth upscaling); face crop and a sketch mode; measuring a purpose-built coder for flat pictures against AV1; a "postcard" (one picture and a voice message) as the first radio product. It supersedes `PLAN-radio.md` if accepted.
 - **Stage 0 of that roadmap is built here as 0.15.2 (2026-11-15, Sonnet 5.5): a Self-test panel** (button "Self-test" under the controls). RUN SELF-TEST (about a minute) times the voice chain and DRED coding and playing on the phone, times the posterize filter on a made-up camera scene, and for AV1, HEVC and H.264 lists the phone's encoders (software or hardware, lowest bit rate) and reports what the app's own `VideoEncoder` really produces from that scene at 5 and 2 kbit/s asked: bytes, real kbit/s, full-picture size, time. SAVE TEST CLIP records 30 s of the microphone with no processing by the app (Download/FlatRaster). COPY REPORT copies it and SHARE REPORT sends it; the report is also kept inside the app. Code: `PictureTest.java` (filter, no Android), `VideoTest.java` (encoders), `SelfTestRun.java` (phone side), and `src/pl/dyktafon/SelfTest.java`, which is copied from Codec2 Recorder's file of the same name (identical except `public`; stage 1 merges them). Tested on a computer: `bash tests/selftest/run.sh` (also in `tests/run.sh`), and the page panel in `tests/ui_test.js`. **Not tested on a phone**: `VideoTest` and `SelfTestRun` use Android's encoders and microphone. The scene is synthetic, so real camera noise will cost more bytes than the report shows. **First phone report, 2026-11-16 (Xiaomi 2602BPC18G, Android 16, arm64, 0.15.2): everything passed.** Voice speed as in the recorder (DRED coding 220x, playing 26x, recording 65x real time). The posterize filter takes 21 ms a picture (47 a second possible; the app uses 2). Encoders on this phone: H.264 and HEVC in software and in the camera chip (MediaTek), AV1 in software only; all accept 320x240 and bit rates down to almost 0. The app tries software first, so on this phone it uses AV1 software, and the chip encoders were not tested. **None of them keeps to a low bit rate.** On the made-up scene (30 s, 2 pictures a second, 3 full pictures), asked 5 kbit/s: H.264 3.77, HEVC 4.85, AV1 4.75 kbit/s really; asked 2 kbit/s: H.264 3.18, HEVC 3.93, AV1 3.97, so about double the ask. Full pictures are 0.9 to 1.5 kB each. H.264 made the fewest bytes here (11.9 to 14.1 kB per 30 s), AV1 the smallest full pictures but larger delta pictures. This confirms the estimate in ROADMAP.md 6 and 7.1 that 30 s of video is about 12 to 18 kB, too big for a radio link as it is, and supports measuring a purpose-built coder (stage 6a). Caveats: the scene is synthetic (real camera noise will cost more), one scene only, and the choice of default codec should not be changed on this alone. The report file is `selftest_2026-11-16_01-20-34.txt` on the phone. It also answers which encoder the phone gives and at what real bit rate (ROADMAP.md 7.1).
-- Current version **0.15.2** (0.15 plus the self-test) on `main`, APK in `dist/`. Since 0.13 the voice is DRED (Codec 2 is gone; `.frv` files from 0.12 or older don't play), 0.14 put the voice in step with the picture, 0.15 gave it the sound settings of Codec2 Recorder. None of 0.2 to 0.15 has been tried on a phone.
+- Current version **0.16** on `main`, APK in `dist/` (0.15.2 was 0.15 plus the self-test). Since 0.13 the voice is DRED (Codec 2 is gone; `.frv` files from 0.12 or older don't play), 0.14 put the voice in step with the picture, 0.15 gave it the sound settings of Codec2 Recorder. None of 0.2 to 0.16 has been tried on a phone, apart from the self-test of 0.15.2.
 - Next real step: **the owner's phone test of 0.15**: recording with voice, playback in step, SAVE MP4 (its sound is now AAC at 16 kHz, untried on the phone), the sound settings, a Bluetooth microphone.
 - Older note, superseded by `ROADMAP.md` (its stage 6d takes the transport from the shared core; the order of work is the roadmap's): sending `.frv` over radio. Take the modem library and file transport from Codec2 Recorder (`third_party/codec2-1.2`, `fdvflags.sh`, `jni/fdvjni.c`, `Fountain`, `RadioLink`); see `PLAN-radio.md` and its 2026-11-14 update. Codec2 Recorder 2.8 also has RADE voice messages (`libvoice.so`, `third_party/rade_c`, `radeflags.sh`); whether FlatRaster wants them is the owner's call.
 - Before stating what exists, fetch and list all branches. Keys: attach `apk-signing-keys`, folder `apk-flatraster`. Build: the Android SDK from Codec2 Recorder's `setup.sh` works here too (`source env.sh` there, then `bash build.sh` here). Run `bash tests/run.sh` before delivering (needs numpy, opencv-python-headless, Playwright).
@@ -30,6 +43,7 @@ Last updated: 2026-11-16 (stage 6a: the picture coder measured on a computer; no
 | Exposure and white balance lock while recording | Built, not tested anywhere |
 | Voice: DRED in place of Codec 2 (0.13) | Built and tested on a computer ([PLAN-dred.md](PLAN-dred.md)); not run on a phone |
 | Sound settings as in Codec2 Recorder, Bluetooth and USB microphones, noise sample (0.15) | Page tested against a stub; recording path tested on a computer; not run on a phone |
+| Camera frames joined between pictures; smooth enlarging on the screen; no border rounding at 160 x 120 (0.16) | Filter and enlarger tested on a computer; the Android side built, not run on a phone |
 | Sending over a narrow link | Not started |
 
 ## What was measured (synthetic clips, AV1 at one quality setting, 320x240)
@@ -48,6 +62,48 @@ Last updated: 2026-11-16 (stage 6a: the picture coder measured on a computer; no
 - 0.11, the owner's exact idea: a brand-new palette every picture, each new colour shown as the nearest colour of the previous picture if within a threshold. Borders 0.92 to 0.99x ideal. Stream at threshold 16 (and 28): still 1.91 (1.91), drift 3.71 (3.91), soft moving 3.61 (3.45), light change 3.60 (3.51) kbps, against 1.45, 3.30, 3.03, 3.33 with locked colours. A fresh palette lands slightly differently on each noisy picture, which moves borders a little every time.
 
 None of this is measured on real footage yet. Next measurement: the same tests on clips from the phone.
+
+## 0.16: camera frames joined, smooth enlarging (2026-11-16)
+
+All on a computer, synthetic scenes; `bash tests/run.sh` repeats every figure (`tests/cam_test.py`, `tests/smooth_test.py`). Scene: the self-test scene (a head that sways in front of a wall), 2 pictures a second for 30 s, 8 colours.
+
+**Joining the camera's frames** (`flat_gather` in `jni/flat.c`). The camera gives 16 frames a second here; the last six before each picture are joined with it. The noise limit is measured from the frames themselves (three times the middle difference between them, kept between 6 and 24), so there is nothing to set. "Border" is the length of the borders against the same scene without noise; "face" is how much of the face differs from that ideal.
+
+| Camera noise | Frames | Border | Pixels changed per picture | Face | Bytes, exact coder | x264 | svt-av1 |
+|---|---|---|---|---|---|---|---|
+| 2.5 (as the self-test) | one kept | 1.06 | 466 | 0.21% | 9202 | 8376 | 6309 |
+| | all joined | 1.03 | 466 | 0.21% | 9091 | 8485 | 6054 |
+| 8 | one kept | 1.13 | 469 | 0.30% | 9520 | 8619 | 6890 |
+| | all joined | 1.09 | 468 | 0.31% | 9333 | 8333 | 6514 |
+| 16 | one kept | 1.33 | 554 | 0.55% | 12141 | 10704 | 10484 |
+| | all joined | 1.17 | 504 | 1.00% | 10184 | 8991 | 7848 |
+| 8, shaken hand | one kept | 1.37 | 869 | 0.88% | 16035 | 9988 | 9157 |
+| | all joined | 1.10 | 468 | 0.70% | 9237 | 8629 | 6586 |
+
+- With little noise the gain is small (the filter's smoothing and hold rule already deal with it): borders 3% shorter, bytes within 4% either way.
+- With strong noise: borders 12% shorter, 16 to 25% fewer bytes. The price: the moving outline of the head lags by a fraction of a pixel (face 0.55% to 1.00%), because at that noise the limit is as large as the contrast between head and wall.
+- A shaken hand (two frames in eight blurred, and in every second picture the frame that would have been kept): the sharper earlier frame is chosen for exactly those pictures; 42% fewer bytes with the exact coder, 14 and 28% with x264 and svt-av1.
+- Without noise, joining changes no pixel at all, so movement is not smeared.
+- Cost: 1.8 ms on a computer to store a frame. On a phone not measured; the self-test now reports it.
+- Limits: the noise is made up and has no pattern, real camera noise is partly removed by the camera chip before the app sees it; the camera's real frame rate in poor light is unknown (the app asks for the lowest range). So the gain on a phone may be nearer the first rows than the last.
+
+**Smooth enlarging on the screen** (`jni/smooth.c`): each output pixel takes the colour that has the most weight in the 4 x 4 source pixels around it (a smooth bell), and within a pixel of a border the two strongest are mixed. No new colours appear, and a line one source pixel wide survives. Truth: the scene without noise posterized at 640 x 480. "Face": pixels in the skin colour in one picture but not the other, as a share of the truth's.
+
+| Picture, enlarged to 640 x 480 | Face, as blocks | Face, smooth | Bytes for 30 s, exact coder | x264 | svt-av1 |
+|---|---|---|---|---|---|
+| 160 x 120, borders as they fall (what 0.16 records) | 3.31% | 2.63% | 4081 | 3965 | 3433 |
+| the same after H.264 (x264 step 40) | 5.69% | 4.78% | | | |
+| the same after AV1 (svt-av1 step 45) | 4.20% | 3.34% | | | |
+| 160 x 120, borders rounded (what 0.15 recorded) | 5.33% | 4.83% | 3383 | 3968 | 3491 |
+| 320 x 240, borders as they fall | 1.72% | 1.46% | 10074 | 8259 | 5852 |
+| 320 x 240, borders rounded (the default) | 1.83% | 1.53% | 9057 | 8408 | 6205 |
+
+- Smooth is nearer the truth in every row, by 9 to 21%. The numbers understate what the eye sees: a staircase and a smooth line differ by few pixels.
+- Rounding at 160 x 120 nearly doubles the face error, because its 5 x 5 window is wider than an eye. 0.16 leaves it out below 150 pixels on the short side (`MainActivity.roundFor`). At 320 x 240 rounding costs the face little; it saves 10% with the exact coder but costs 2 to 6% with the video encoders, so the earlier case for it (shorter borders on a soft moving scene) is weaker than it looked. The default is not changed without the phone.
+- 160 x 120 needs 0.45 times the bytes of 320 x 240 with the exact coder, 0.47 with x264 and 0.55 with svt-av1.
+- Cost: 20 ms on a computer to enlarge 320 x 240 four times. On a phone not measured; the self-test now reports it. It runs once per picture shown, not per camera frame.
+
+**Tried and dropped: faces first.** Pixels inside the camera's face box counted 4 or 8 times when the palette is chosen. On a scene made for it (strong wall gradient, face little brighter than the wall, eyes 32 levels darker than the skin; 4, 6 and 8 colours) the share of eye and mouth pixels shown apart from the skin stayed at 80 to 93% with and without it. The box the camera gives is head and shoulders, and about half of it is wall. Not built in.
 
 ## Stage 6a: a coder made for flat pictures, measured (2026-11-16)
 

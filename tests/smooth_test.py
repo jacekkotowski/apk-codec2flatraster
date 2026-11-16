@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Desktop test for the smooth enlarger (jni/smooth.c, 0.16): a small posterized picture shown large.
 Truth: the self-test scene, without noise, posterized at 640x480. The same scene is posterized small (160x120 and 320x240, with
-camera noise) and enlarged to 640x480 two ways: as blocks (up to 0.15) and with the smooth enlarger.
+camera noise, borders rounded or not) and enlarged to 640x480 two ways: as blocks (up to 0.15) and with the smooth enlarger.
+Beside it, the bytes each size needs for 30 s (exact prototype coder, and x264 and svt-av1 if ffmpeg is there): the point of
+showing a small picture well is that a smaller one can be recorded.
   face    the pixels shown in the skin colour in one picture but not the other, as a share of the truth's: the outline of the
           head with the eyes and mouth inside it
           (The length of the borders is no use here: counted along pixel edges a staircase is as long as a smooth line.)
@@ -11,12 +13,14 @@ import ctypes, os, shutil, subprocess, sys, tempfile
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "tools", "coder"))
+import flatcoder  # noqa: E402
 tmp = tempfile.mkdtemp()
 exe, lib = os.path.join(tmp, "cam_test"), os.path.join(tmp, "libsmooth.so")
 subprocess.run(["gcc", "-O2", "-o", exe, os.path.join(HERE, "cam_test.c"), os.path.join(HERE, "..", "jni", "flat.c"), "-lm"], check=True)
 subprocess.run(["gcc", "-O2", "-Wall", "-Wextra", "-fsanitize=address,undefined", "-fPIC", "-shared", "-o", lib, os.path.join(HERE, "..", "jni", "smooth.c")], check=True)
 asan = subprocess.run(["gcc", "-print-file-name=libasan.so"], capture_output=True, text=True).stdout.strip()
-PICS = 12
+PICS = 60
 
 
 def camera(k, noise, name):
@@ -45,13 +49,13 @@ def camera(k, noise, name):
     return path, sw, sh
 
 
-def posterize(src, sw, sh, w, h, name, hold):
+def posterize(src, sw, sh, w, h, name, hold, rounding):
     out = os.path.join(tmp, name)
-    subprocess.run([exe, src, str(sw), str(sh), str(w), str(h), "8", "2", str(hold), "1", "1", "1", "0", out], check=True, capture_output=True)
+    subprocess.run([exe, src, str(sw), str(sh), str(w), str(h), "8", "2", str(hold), "1", str(rounding), "1", "0", out], check=True, capture_output=True)
     lab = np.fromfile(out + ".lab", np.uint8).reshape(PICS, h, w)
     pal = np.fromfile(out + ".pal", np.uint8).reshape(PICS, -1, 3).astype(np.uint32)
     argb = 0xff000000 | pal[:, :, 0] << 16 | pal[:, :, 1] << 8 | pal[:, :, 2]
-    return np.take_along_axis(argb[:, None, :], lab.reshape(PICS, 1, -1).astype(np.int64), axis=2).reshape(PICS, h, w).astype(np.uint32), pal, out + ".i420"
+    return np.take_along_axis(argb[:, None, :], lab.reshape(PICS, 1, -1).astype(np.int64), axis=2).reshape(PICS, h, w).astype(np.uint32), pal, lab, out + ".i420"
 
 
 def enlarge(pics, factor, tol):
@@ -81,6 +85,14 @@ def skin(pics, pal):
     return np.array(out)
 
 
+def packets(i420, w, h, args):
+    """Bytes the video coder makes from the clip: its packets only."""
+    out = i420 + ".mkv"
+    subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "yuv420p", "-s", f"{w}x{h}", "-framerate", "2", "-i", i420, *args, out], check=True, capture_output=True)
+    rows = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries", "packet=size", "-of", "csv=p=0", out], capture_output=True, text=True, check=True).stdout.split()
+    return sum(int(x.strip(",")) for x in rows)
+
+
 def decoded(i420, w, h, args):
     """The clip through a video coder and back to ARGB the way Player.toArgb does it."""
     out = i420 + ".mkv"
@@ -104,34 +116,48 @@ def check(ok, what):
 
 
 src2, sw2, sh2 = camera(2, 0, "truth")
-truth, tpal, _ = posterize(src2, sw2, sh2, 640, 480, "truth", 0)
+truth, tpal, _, _ = posterize(src2, sw2, sh2, 640, 480, "truth", 0, 1)
 tskin = skin(truth, tpal)
 src1, sw1, sh1 = camera(1, 2.5, "cam")
-print(f"{'picture':42s} {'shown as':>8s} {'face':>7s}")
+have_ffmpeg = bool(shutil.which("ffmpeg"))
+X264 = ["-c:v", "libx264", "-preset", "veryslow", "-crf", "40", "-g", "20", "-keyint_min", "20", "-sc_threshold", "0", "-bsf:v", "filter_units=remove_types=6"]
+SVT = ["-c:v", "libsvtav1", "-preset", "4", "-crf", "45", "-g", "20", "-svtav1-params", "scd=0"]
+print(f"{'picture':48s} {'blocks':>7s} {'smooth':>7s}   bytes for 30 s: {'exact':>6s}" + (f" {'x264':>6s} {'svt-av1':>7s}" if have_ffmpeg else ""))
 res, tiles = {}, []
 for (w, h, s) in ((160, 120, 4), (320, 240, 2)):
-    pics, pal, i420 = posterize(src1, sw1, sh1, w, h, f"p{w}", 12)
-    cases = [(f"{w}x{h}, as filtered", pics, 0)]
-    if w == 160 and shutil.which("ffmpeg"):
-        cases.append((f"{w}x{h}, after H.264 (x264 step 40)", decoded(i420, w, h, ["-c:v", "libx264", "-preset", "veryslow", "-crf", "40", "-g", "20"]), 40))
-        cases.append((f"{w}x{h}, after AV1 (svt-av1 step 45)", decoded(i420, w, h, ["-c:v", "libsvtav1", "-preset", "4", "-crf", "45", "-g", "20"]), 40))
-    for name, p, tol in cases:
-        blocks = np.kron(p, np.ones((1, s, s), np.uint32))
-        smooth = enlarge(p, s, tol)
-        for kind, big in (("blocks", blocks), ("smooth", smooth)):
-            m = {"face": float((skin(big, pal) != tskin).sum() / tskin.sum())}
-            res[name, kind] = m
-            print(f"{name:42s} {kind:>8s} {100 * m['face']:6.2f}%")
-        if w == 160:
-            tiles += [blocks[6], smooth[6]]
-    if w == 160:
-        exact = enlarge(pics, s, 0)
-        colours = {int(c) for c in np.unique(pics)}
-        flat_share = float(np.isin(exact, list(colours)).mean())
-        check(flat_share > 0.9, f"{100 * flat_share:.1f}% of the enlarged pixels are plain palette colours; only pixels on a border are mixed")
-for name in sorted({k[0] for k in res}):
-    a, b = res[name, "blocks"], res[name, "smooth"]
-    check(b["face"] < a["face"], f"{name}: the face is nearer the truth ({100 * a['face']:.2f}% to {100 * b['face']:.2f}% of its pixels differ)")
+    for rounding in (0, 1):
+        pics, pal, lab, i420 = posterize(src1, sw1, sh1, w, h, f"p{w}_{rounding}", 12, rounding)
+        name = f"{w}x{h}, borders {'rounded' if rounding else 'as they fall'}"
+        cases = [(name, pics, 0)]
+        if (w, rounding) == (160, 0) and have_ffmpeg:  # what the app records at this size, played back
+            cases.append((f"{w}x{h}, after H.264 (x264 step 40)", decoded(i420, w, h, X264), 40))
+            cases.append((f"{w}x{h}, after AV1 (svt-av1 step 45)", decoded(i420, w, h, SVT), 40))
+        for case, p, tol in cases:
+            blocks, smooth = np.kron(p, np.ones((1, s, s), np.uint32)), enlarge(p, s, tol)
+            m = {"blocks": float((skin(blocks, pal) != tskin).sum() / tskin.sum()), "smooth": float((skin(smooth, pal) != tskin).sum() / tskin.sum())}
+            line = f"{case:48s} {100 * m['blocks']:6.2f}% {100 * m['smooth']:6.2f}%"
+            if tol == 0:
+                labs, pals = [bytes(l) for l in lab.reshape(PICS, -1)], [bytes(q.astype(np.uint8)) for q in pal.reshape(PICS, -1)]
+                m["exact"] = sum(len(d) for _, d in flatcoder.encode_clip(labs, pals, w, h, 20))
+                line += f"   {'':16s} {m['exact']:6d}"
+                if have_ffmpeg:
+                    m["x264"], m["svt"] = packets(i420, w, h, X264), packets(i420, w, h, SVT)
+                    line += f" {m['x264']:6d} {m['svt']:7d}"
+            res[case] = m
+            print(line)
+            if (w, rounding) == (160, 0):
+                tiles += [blocks[6], smooth[6]]
+        if (w, rounding) == (160, 0):
+            colours = {int(c) for c in np.unique(pics)}
+            flat_share = float(np.isin(enlarge(pics, s, 0), list(colours)).mean())
+            check(flat_share > 0.9, f"{100 * flat_share:.1f}% of the enlarged pixels are plain palette colours; only pixels on a border are mixed")
+for case, m in res.items():
+    check(m["smooth"] < m["blocks"], f"{case}: shown smooth, the face is nearer the truth ({100 * m['blocks']:.2f}% to {100 * m['smooth']:.2f}% of its pixels differ)")
+a, b = res["160x120, borders rounded"], res["160x120, borders as they fall"]
+check(b["smooth"] < 0.7 * a["smooth"], f"160x120: border rounding wipes out eyes and mouth, so the app leaves it out there ({100 * a['smooth']:.2f}% of the face off with it, {100 * b['smooth']:.2f}% without)")
+big = res["320x240, borders rounded"]
+check(b["exact"] < 0.6 * big["exact"], f"160x120 needs under 0.6 of the bytes of 320x240 ({b['exact']} against {big['exact']} for 30 s, exact coder)")
+print(f"160x120 shown smooth is {100 * b['smooth']:.2f}% off the truth; 320x240 shown as blocks, as up to 0.15, is {100 * big['blocks']:.2f}% off.")
 if len(sys.argv) > 1:
     import cv2
     crop = lambda p: rgb(p)[100:330, 190:470][:, :, ::-1].astype(np.uint8)
