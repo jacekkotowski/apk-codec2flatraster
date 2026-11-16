@@ -22,6 +22,10 @@ struct Flat {
     uint8_t py[FLAT_MAX_COLORS], pu[FLAT_MAX_COLORS], pv[FLAT_MAX_COLORS]; /* colours shown */
     uint8_t qy[FLAT_MAX_COLORS], qu[FLAT_MAX_COLORS], qv[FLAT_MAX_COLORS]; /* colours as fitted to the present picture: they decide the borders */
     double ty_[FLAT_MAX_COLORS], tu_[FLAT_MAX_COLORS], tv_[FLAT_MAX_COLORS]; /* the fit, unrounded */
+    uint8_t *ring;           /* camera frames gathered for the next picture: FLAT_GATHER slots of y, u, v; NULL until first used */
+    int gathered, slot;      /* slots filled, and where the next frame goes */
+    int gFrames, gBase, gThr, gAvg; /* what the last merge did, for flat_gather_info */
+    int faceWeight;          /* how many times a pixel in a focus box counts when the palette is chosen */
     int trackFull;           /* 2: brand-new palette every picture, matched to the previous colours; 1: refit from the previous palette; 0: glide */
     int track;               /* 0: palette locked. Else: refit every picture; a shown colour follows once the fit is this far from it */
     double baseErr;
@@ -47,7 +51,8 @@ Flat *flat_create(int w, int h, int colors) {
     return f;
 }
 
-void flat_destroy(Flat *f) { if (f) { free(f->y); free(f->cnt); free(f); } }
+void flat_destroy(Flat *f) { if (f) { free(f->y); free(f->cnt); free(f->ring); free(f); } }
+void flat_set_face_weight(Flat *f, int weight) { f->faceWeight = weight < 1 ? 1 : weight > 16 ? 16 : weight; }
 void flat_reset(Flat *f) { f->have = 0; }
 void flat_set_track(Flat *f, int threshold, int full) { f->track = threshold < 0 ? 0 : threshold; f->trackFull = full < 0 ? 0 : full > 2 ? 2 : full; }
 void flat_set_round(Flat *f, int passes) { f->round = passes < 0 ? 0 : passes > 2 ? 2 : passes; }
@@ -76,8 +81,11 @@ void flat_load_rgb(Flat *f, const uint8_t *rgb) {
     }
 }
 
-void flat_load_yuv420(Flat *f, const uint8_t *y, int yStride, const uint8_t *u, const uint8_t *v,
-                      int uvStride, int uvPixStride, int sw, int sh, int rot, int mirror) {
+static int sampleStep(const Flat *f);
+
+/* Rotates, crops and averages a camera frame down into three planes of the output size; focus (may be NULL) gets the box mask. */
+static void loadYuv(const Flat *f, uint8_t *dy, uint8_t *du, uint8_t *dv, uint8_t *focus, const uint8_t *y, int yStride,
+                    const uint8_t *u, const uint8_t *v, int uvStride, int uvPixStride, int sw, int sh, int rot, int mirror) {
     int w = f->w, h = f->h;
     int rw = (rot == 90 || rot == 270) ? sh : sw, rh = (rot == 90 || rot == 270) ? sw : sh;
     /* Centre crop of the upright picture with the output's shape. */
@@ -106,9 +114,95 @@ void flat_load_yuv420(Flat *f, const uint8_t *y, int yStride, const uint8_t *u, 
             su += u[c]; sv += v[c];
         }
         int n = taps * taps, o = oy * w + ox;
-        f->y[o] = (uint8_t)((sy_ + n / 2) / n); f->u[o] = (uint8_t)((su + n / 2) / n); f->v[o] = (uint8_t)((sv + n / 2) / n);
-        f->focus[o] = inFocus(f, fx, fy); /* boxes are in source pixels, so rotation and cropping need no extra maths */
+        dy[o] = (uint8_t)((sy_ + n / 2) / n); du[o] = (uint8_t)((su + n / 2) / n); dv[o] = (uint8_t)((sv + n / 2) / n);
+        if (focus) focus[o] = inFocus(f, fx, fy); /* boxes are in source pixels, so rotation and cropping need no extra maths */
     }
+}
+
+void flat_load_yuv420(Flat *f, const uint8_t *y, int yStride, const uint8_t *u, const uint8_t *v,
+                      int uvStride, int uvPixStride, int sw, int sh, int rot, int mirror) {
+    loadYuv(f, f->y, f->u, f->v, f->focus, y, yStride, u, v, uvStride, uvPixStride, sw, sh, rot, mirror);
+}
+
+/* How sharp a brightness plane is: the sum of squared differences between neighbours, counting only differences above `floor`.
+   Blur (a shaken hand, a moving subject, focus hunting) lowers it. The floor is the camera's noise limit, so noise, which is the
+   same in every frame of a scene, adds next to nothing and cannot hide the difference between a sharp and a blurred frame. */
+static double sharpness(const Flat *f, const uint8_t *y, int floor) {
+    int w = f->w, h = f->h; double sum = 0;
+    for (int yy = 0; yy < h - 1; yy++) {
+        const uint8_t *p = y + yy * w; long row = 0;
+        for (int x = 0; x < w - 1; x++) {
+            int a = abs(p[x + 1] - p[x]), b = abs(p[x + w] - p[x]);
+            if (a > floor) row += a * a;
+            if (b > floor) row += b * b;
+        }
+        sum += row;
+    }
+    return sum;
+}
+
+void flat_gather(Flat *f, const uint8_t *y, int yStride, const uint8_t *u, const uint8_t *v,
+                 int uvStride, int uvPixStride, int sw, int sh, int rot, int mirror) {
+    size_t n = (size_t)f->w * f->h;
+    if (!f->ring) { f->ring = malloc(FLAT_GATHER * 3 * n); if (!f->ring) return; }
+    uint8_t *d = f->ring + (size_t)f->slot * 3 * n;
+    loadYuv(f, d, d + n, d + 2 * n, NULL, y, yStride, u, v, uvStride, uvPixStride, sw, sh, rot, mirror);
+    f->slot = (f->slot + 1) % FLAT_GATHER;
+    if (f->gathered < FLAT_GATHER) f->gathered++;
+}
+
+void flat_gather_clear(Flat *f) { f->gathered = 0; f->slot = 0; }
+void flat_gather_info(const Flat *f, int *frames, int *base, int *threshold, int *averaged) {
+    *frames = f->gFrames; *base = f->gBase; *threshold = f->gThr; *averaged = f->gAvg;
+}
+
+/* Joins the gathered frames into the loaded one (see flat.h).
+   1. The camera's noise is measured as the middle value of the brightness differences between the frames: more than half of a
+      picture is normally still, so the middle difference is noise, not movement. Three times that is the limit below which two
+      frames "agree". It is kept between 6 and 24, so a wrong estimate can neither switch the averaging off nor blend things
+      that really differ.
+   2. The picture starts from the loaded frame, the newest, unless a gathered one is sharper by more than a quarter: a small
+      gain is not worth showing an older moment (and a sharp edge that moves by half a pixel changes the figure by itself).
+      Then the newest frame within a tenth of the sharpest is taken, so the picture is as little behind as it can be.
+   3. Each pixel becomes the average of the frames that agree with the chosen one at that pixel. Where something moved they do
+      not agree, and only the chosen frame counts, so nothing is smeared. */
+static void mergeGathered(Flat *f) {
+    int n = f->w * f->h, G = f->gathered, order[FLAT_GATHER];
+    f->gFrames = G; f->gBase = 0; f->gThr = 0; f->gAvg = 0;
+    if (!G || !f->ring) return;
+    for (int i = 0; i < G; i++) order[i] = (f->slot - G + i + 2 * FLAT_GATHER) % FLAT_GATHER; /* oldest first */
+    int hist[256] = {0}, cnt = 0, s = sampleStep(f);
+    for (int i = 0; i < G; i++) {
+        const uint8_t *g = f->ring + (size_t)order[i] * 3 * n;
+        for (int yy = s / 2; yy < f->h; yy += s) for (int x = s / 2; x < f->w; x += s) { int o = yy * f->w + x; hist[abs(g[o] - f->y[o])]++; cnt++; }
+    }
+    int med = 0, acc = 0;
+    while (med < 255 && (acc + hist[med]) * 2 < cnt) acc += hist[med++];
+    /* the middle value inside its whole-number step: a difference shown as k was between k - 0.5 and k + 0.5 */
+    double frac = hist[med] ? (cnt / 2.0 - acc) / hist[med] : 0.5, mid = med ? med - 0.5 + frac : 0.5 * frac;
+    int T = (int)(3 * 1.4826 * mid + 0.5);
+    T = T < 6 ? 6 : T > 24 ? 24 : T;
+    f->gThr = T;
+    double sh[FLAT_GATHER], top = 0; int base = -1;
+    for (int i = 0; i < G; i++) { sh[i] = sharpness(f, f->ring + (size_t)order[i] * 3 * n, T); if (sh[i] > top) top = sh[i]; }
+    if (top > 1.25 * sharpness(f, f->y, T)) for (int i = G - 1; i >= 0; i--) if (sh[i] >= 0.9 * top) { base = i; break; } /* the newest of the sharp ones */
+    if (base >= 0) { /* the sharper frame becomes the picture; the loaded one takes its place among the others */
+        uint8_t *g = f->ring + (size_t)order[base] * 3 * n, *p[3] = {f->y, f->u, f->v};
+        for (int c = 0; c < 3; c++) { memcpy(f->ty, p[c], n); memcpy(p[c], g + (size_t)c * n, n); memcpy(g + (size_t)c * n, f->ty, n); }
+        f->gBase = base + 1;
+    }
+    long averaged = 0;
+    for (int o = 0; o < n; o++) {
+        int by = f->y[o], bu = f->u[o], bv = f->v[o], sy = by, su = bu, sv = bv, k = 1;
+        for (int i = 0; i < G; i++) {
+            const uint8_t *g = f->ring + (size_t)order[i] * 3 * n;
+            int gy = g[o], gu = g[n + o], gv = g[2 * n + o];
+            if (abs(gy - by) <= T && abs(gu - bu) <= T && abs(gv - bv) <= T) { sy += gy; su += gu; sv += gv; k++; }
+        }
+        if (k > 1) { f->y[o] = (uint8_t)((sy + k / 2) / k); f->u[o] = (uint8_t)((su + k / 2) / k); f->v[o] = (uint8_t)((sv + k / 2) / k); averaged++; }
+    }
+    f->gAvg = (int)(averaged * 1000 / n);
+    f->gathered = 0; f->slot = 0;
 }
 
 /* One bilateral pass, 5x5: neighbours count only if their colour is close, so edges stay sharp. */
@@ -160,10 +254,12 @@ static void buildMerge(Flat *f);
 static void buildPalette(Flat *f, int seeded) {
     int s = sampleStep(f), w = f->w, h = f->h, k = f->k, n = 0;
     int cap = (w / s + 1) * (h / s + 1);
-    uint8_t *sm = malloc((size_t)cap * 3); int *dmin = malloc(sizeof(int) * cap);
-    if (!sm || !dmin) { free(sm); free(dmin); return; }
+    uint8_t *sm = malloc((size_t)cap * 3), *wt = malloc((size_t)cap); int *dmin = malloc(sizeof(int) * cap);
+    if (!sm || !dmin || !wt) { free(sm); free(dmin); free(wt); return; }
     for (int yy = s / 2; yy < h; yy += s) for (int x = s / 2; x < w; x += s) {
-        int o = yy * w + x; sm[3 * n] = f->y[o]; sm[3 * n + 1] = f->u[o]; sm[3 * n + 2] = f->v[o]; n++;
+        int o = yy * w + x; sm[3 * n] = f->y[o]; sm[3 * n + 1] = f->u[o]; sm[3 * n + 2] = f->v[o];
+        wt[n] = (uint8_t)(f->faceWeight > 1 && f->focus[o] ? f->faceWeight : 1); /* faces first: see flat_set_face_weight */
+        n++;
     }
     double cy[FLAT_MAX_COLORS], cu[FLAT_MAX_COLORS], cv[FLAT_MAX_COLORS];
     if (seeded) for (int c = 0; c < k; c++) { cy[c] = f->ty_[c]; cu[c] = f->tu_[c]; cv[c] = f->tv_[c]; }
@@ -191,8 +287,9 @@ static void buildPalette(Flat *f, int seeded) {
                 double d = dy * dy + 2 * (du * du + dv * dv);
                 if (d < bd) { bd = d; best = c; }
             }
-            ay[best] += sm[3 * i]; au[best] += sm[3 * i + 1]; av[best] += sm[3 * i + 2]; cnt[best]++;
-            if (bd > fd) { fd = bd; far = i; }
+            int q = wt[i];
+            ay[best] += q * sm[3 * i]; au[best] += q * sm[3 * i + 1]; av[best] += q * sm[3 * i + 2]; cnt[best] += q;
+            if (bd * q > fd) { fd = bd * q; far = i; }
         }
         for (int c = 0; c < k; c++) {
             if (cnt[c]) { cy[c] = ay[c] / cnt[c]; cu[c] = au[c] / cnt[c]; cv[c] = av[c] / cnt[c]; }
@@ -207,7 +304,7 @@ static void buildPalette(Flat *f, int seeded) {
     }
     for (int c = 0; c < k; c++) { f->py[c] = clamp8((int)(cy[c] + 0.5)); f->pu[c] = clamp8((int)(cu[c] + 0.5)); f->pv[c] = clamp8((int)(cv[c] + 0.5)); }
     for (int c = 0; c < k; c++) { f->ty_[c] = cy[c]; f->tu_[c] = cu[c]; f->tv_[c] = cv[c]; f->qy[c] = f->py[c]; f->qu[c] = f->pu[c]; f->qv[c] = f->pv[c]; }
-    free(sm); free(dmin);
+    free(sm); free(dmin); free(wt);
     buildMerge(f);
 }
 
@@ -369,6 +466,7 @@ static void mode5(Flat *f, const uint8_t *src, uint8_t *dst) {
 int flat_run(Flat *f, int smooth, int hold, int clean, int ignore) {
     int n = f->w * f->h, rebuilt = 0;
     if (smooth > 6) smooth = 6;
+    mergeGathered(f);
     for (int i = 0; i < smooth; i++) bilateral(f);
     if (!f->have) { buildPalette(f, 0); f->baseErr = paletteError(f); f->bad = 0; rebuilt = 1; }
     else {

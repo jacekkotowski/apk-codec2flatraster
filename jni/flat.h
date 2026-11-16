@@ -16,6 +16,19 @@ void flat_destroy(Flat *f);
    (0, 90, 180, 270), optionally mirroring, centre-cropping to the output shape and averaging down. */
 void flat_load_yuv420(Flat *f, const uint8_t *y, int yStride, const uint8_t *u, const uint8_t *v,
                       int uvStride, int uvPixStride, int sw, int sh, int rot, int mirror);
+/* Camera frames between two pictures (the camera makes 15 to 30 a second, the app keeps 0.5 to 5): each call stores one, same
+   arguments as flat_load_yuv420; the last FLAT_GATHER are kept. The next flat_run then starts from the sharpest of them and the
+   frame loaded for it (the loaded one unless another is clearly sharper), and where the others agree with it to within the camera's
+   noise it takes their average: less noise, so steadier borders and fewer changed pixels, at no cost in bytes. Where something
+   moved the frames disagree and only the chosen one counts, so nothing is smeared. flat_gather_clear forgets the stored frames. */
+#define FLAT_GATHER 6
+void flat_gather(Flat *f, const uint8_t *y, int yStride, const uint8_t *u, const uint8_t *v,
+                 int uvStride, int uvPixStride, int sw, int sh, int rot, int mirror);
+void flat_gather_clear(Flat *f);
+/* What the last flat_run did with the gathered frames: how many it had, which it started from (0 the loaded one, 1.. a gathered
+   one, oldest first), the noise threshold it used, and the share of pixels averaged over at least two frames, in thousandths. */
+void flat_gather_info(const Flat *f, int *frames, int *base, int *threshold, int *averaged);
+
 /* Loads a tightly packed RGB24 frame that already has the output size. For tests. */
 void flat_load_rgb(Flat *f, const uint8_t *rgb);
 
@@ -32,6 +45,10 @@ void flat_mark_sent(Flat *f);
    coarse 0: no effect. 1 or 2: everything outside the boxes uses only a half or a quarter of the colours. With no
    boxes that applies to the whole picture. Call before loading a frame. */
 void flat_set_focus(Flat *f, const int *rects, int count, int coarse);
+
+/* Faces first: when the palette is chosen, every pixel inside a focus box counts `weight` times (1 = as any other, up to 16),
+   so a face that fills a small part of the picture still gets its own colours. Takes effect when a palette is next built. */
+void flat_set_face_weight(Flat *f, int weight);
 
 /* Colour tracking: 0 keeps the palette locked between rebuilds. Above 0 the colours are refitted to every picture
    (borders fall as after a new palette), and a shown colour changes only once the fit is more than `threshold` away.
