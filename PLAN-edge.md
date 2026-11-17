@@ -216,4 +216,16 @@ What would be needed: a legibility measure that works on drawings (for example l
 
 The move and size rule never fires on C1, C3, C4 (their faces stay within 15% of where the key had them), so it changes nothing there, and on the moving camera C5 it fires 7 to 9 times and costs 6.6 to 13.4 kB. The turn rule fires on C1 (7 keys) and brings it to 4.7 kB with 96x72 keys (over 4 kB) and 7.2 kB with 128x96 keys. Looking at E14 (frames of C1, C4, C3 next to the camera frames): at 96x72 the face is gone on C1 (the head is a blank patch at the top), C3's head and hand are dark blobs, C4 is a crude portrait that follows the head. **Verdict: a refresh rule does not give a good picture inside 4 kB except on the still-camera clip (C4, 1.4 to 2.4 kB); on a person who turns or a moving camera the bytes go over 4 kB or the face disappears. G1 stays not passed. Recommendation to the owner: go to (b), the postcard (one key picture, 1.3 to 2.3 kB at 160x120, plus voice), as the first radio product, and keep the moving drawing as research. Stage 2 (owner's look) is no longer needed to decide this; the owner may still look at `out/*.E10.edge.mp4` for C4.**
 
+**Real video (the 0.17 path) at the raised budget, 2026-11-17, `tools/edge/sweep.py`** (owner: "I want video"). Bytes per 30 s, smallest of exact / x264 / svt-av1, Hold face still with the face-only box, flat background, face rectangle from MediaPipe:
+
+| variant | C1 | C3 | C4 | C5 |
+|---|---|---|---|---|
+| 160x120, 8 colours, 2 pictures/s (the 0.17 default at this size) | 5188 | 3677 | 8099 | 10750 |
+| 160x120, 8 colours, 1/s | 3833 | 2105 | 6683 | 7140 |
+| 160x120, 4 colours, 1/s | 3069 | 1214 | 6501 | 6802 |
+| 128x96, 4 colours, 1/s | 2372 | 954 | 4812 | 2746 |
+| 96x72, 4 colours, 1/s | 1622 | 733 | 3449 | 3799 |
+
+Looked at (frame two thirds into each clip, enlarged): 160x120 with 8 colours shows a face you can recognise on C4 (eyes, mouth area, hair) and a rough one on C3 and C5; **with 4 colours or at 128x96 and 96x72 the face is a flat blob (eyes only as two dark dots on C4) and C1, C3, C5 lose it altogether.** So under 4 kB real video is not watchable; the watchable setting is 160x120 with 8 colours at 1 to 2 pictures a second, 2.1 to 10.8 kB per 30 s (clip with voice 3.6 to 12.3 kB, i.e. 1 to 3.4 min on DATAC1, 2.7 to 9.3 min on DATAC3). C4 and C5 are the costly ones (camera noise flickers the pictures; the filter cannot hide it). The C1 box was wrong (face rectangle estimated from MediaPipe's points cuts off the head), so C1's figures are optimistic for a correct box. Not measured: legibility by any measure other than looking. Suggested budget for video: picture up to 8 kB per 30 s (2 min on DATAC1 with voice), 1 picture a second, to be settled with the owner.
+
 **Tasks:** 1.1 to 1.9 done in the sense that the code exists, runs from `run.sh` and produced the tables. Gate G1: not passed (see above). Task ticks left unticked below pending the stronger session's reading of the measure.
