@@ -35,7 +35,7 @@ Per picture at 2 pictures a second, 2.0 kB per 30 s is **33 bytes a picture on a
 | Thin-plate-spline warp shown as video | Built and measured as an **experiment**; the player marks warped pictures as such ("moved, not seen") and never hides that a picture is not a real one | `ROADMAP.md` 11: nothing that invents content. A warp shows the key picture moved, which is not what the camera saw. The owner decides after seeing it (gate G3) |
 | 10 s test sequence | 30 s, real clips (section 4), as the rest of FlatRaster's measurements | Compare with the 0.17 table on the same terms |
 
-Defaults this plan takes where the owner did not answer (each can be overruled; say so in `PLAN.md` and change this section): store and send; computer first, Android only after gate G1; warping as a marked experiment; real clips from the owner (section 4).
+Defaults this plan takes where the owner did not answer (each can be overruled; say so in `PLAN.md` and change this section): store and send; computer first, Android only after gate G1; warping as a marked experiment; public test clips, no owner participation (section 4).
 
 ## 3. The design in one page
 
@@ -51,20 +51,21 @@ A clip is: key pictures (rare), motion pictures (often), patches (when something
 - **When to send a key picture:** at the start; when the patch rule fires over more than half the picture (a cut, a turned camera); never on a timer by default (a timer is measured as a variant). Key pictures cost the most, so this is the main lever.
 - **Fallback, always measured beside it:** the 0.17 path (posterized, held face, flat background) with the stage 6a exact coder and with svt-av1, at the same picture rate and size. If the edge codec does not beat it by the rule of gate G1, the fallback is what goes forward.
 
-## 4. Test clips (needs the owner)
+## 4. Test clips (no owner needed)
 
-MediaPipe finds no face or hand in FlatRaster's made-up scenes, and the classic test clips (media.xiph.org: akiyo, news, mother_daughter, silent, foreman, carphone) are blocked from the cloud container. Two ways, either is enough:
+The owner has no time to record (2026-11-17), so the clips are public codec test sequences from Google's `aom-test-data` bucket, which the cloud container can reach (Wikimedia, Pexels, xiph and the like are blocked). Raw YUV 4:2:0 (`.yuv`, size in the name, 30 frames a second) or `.y4m`. Download in `tools/edge/get_clips.sh` to `tools/edge/out/clips/` (not committed: large, and faces of real people), each from `https://storage.googleapis.com/aom-test-data/<name>`:
 
-1. **The owner records** with the phone's normal camera app, 720p or more, 30 frames a second, each 30 s, and puts them in the repository under `tools/edge/clips/` (or in the chat; Sonnet commits them). The set:
-   - C1 talking head, phone on a stand, indoors, daylight;
-   - C2 the same, held in the hand;
-   - C3 talking and holding up three objects one after another (a cup, a sheet of paper with large writing, a tool);
-   - C4 poor light (one lamp);
-   - C5 hands moving a lot while talking (counting on fingers, pointing).
-   Faces in the clips will be in the repository: the owner chooses whose.
-2. **Or** the owner lets the environment reach `media.xiph.org` (one allowed host); Sonnet then uses akiyo_cif, news_cif, mother_daughter_cif, silent_cif (sign language: hands), foreman_cif (hand-held), and records which are used. They are CIF 352x288 at 30 frames a second, 10 s each: loop or chain to 30 s and say so.
+| Clip | File | Size | What it tests |
+|---|---|---|---|
+| C1 talking head | `niklas_640_480_30.yuv` | 217 MB, about 16 s | the main case |
+| C2 two presenters, hands, objects on the desk | `paris_352_288_30.y4m` | check | hands, a second face |
+| C3 desk meeting | `thaloundeskmtg_640_480_30.yuv` | check | several people, small faces |
+| C4 person, still camera | `macmarcostationary_640_480_30.yuv` | check | head and shoulders |
+| C5 person, moving camera | `macmarcomoving_640_480_30.yuv` | check | hand-held |
 
-Until clips exist, tasks 1.1 to 1.6 are built and unit-tested on made-up input, and every figure that needs a face or a hand is written as "blocked: no clips".
+Steps: download with `curl -sS -o`, print each size; convert raw `.yuv` with ffmpeg (`-f rawvideo -pix_fmt yuv420p -s 640x480 -r 30`); if shorter than 30 s, play forward then backward to make 30 s and say so in the results. Before any measurement run MediaPipe on every 10th frame and write into section 9 the share of frames with a face and with a hand per clip; drop a clip that has a face in fewer than 80% of frames (and say so). G1 then needs four of the clips that remain (three if only four remain).
+
+Not covered by these clips: holding up objects to the camera, and poor light. Write that as a known gap in the verdict; the owner's phone test (phase 4) covers it. If the owner later puts own clips in `tools/edge/clips/`, add them to the table and re-run.
 
 ## 5. Tasks
 
