@@ -19,6 +19,7 @@ final class PuppetEncoder implements PictureEncoder, CameraAware {
     private boolean forceKey = true;
     private Landmarks.Result last = new Landmarks.Result();
     private int pointsBytes, keyBytes, pictures;
+    private volatile String keyNote = "no key picture yet";
 
     PuppetEncoder(Context ctx, long flat, int w, int h, int keySeconds, PictureEncoder.Sink sink) {
         this.flat = flat; this.w = w; this.h = h; this.sink = sink; this.keyMs = Math.max(1, keySeconds) * 1000L;
@@ -30,7 +31,7 @@ final class PuppetEncoder implements PictureEncoder, CameraAware {
     }
 
     @Override public int codec() { return FrvWriter.PUPPET; }
-    @Override public String describe() { return "Puppet " + w + "x" + h + " (face and body points, key picture every few seconds)"; }
+    @Override public String describe() { return "Puppet " + w + "x" + h + ", " + keyNote + ", " + pictures + " pictures"; }
 
     @Override public void cameraFrame(Image img, int rotation, boolean mirror, long timeMs) {
         try { last = marks.detect(img, rotation, mirror, timeMs); }
@@ -41,6 +42,7 @@ final class PuppetEncoder implements PictureEncoder, CameraAware {
         if (forceKey || lastKeyMs < 0 || timeMs - lastKeyMs >= keyMs) {
             Exact.Coded c = null;
             if (last.mask != null) c = ex.encodeMasked(flat, pictureMask(last), Math.max(4, w / 20));   // the person as seen, the background as a coarse colour map
+            keyNote = c != null ? "key with cut-out (" + last.maskNote + ")" : "key WITHOUT cut-out: " + last.maskNote;
             if (c == null) c = ex.encode(flat, true);
             if (c == null) throw new java.io.IOException("the key picture could not be coded");
             sink.video(FrvWriter.KEY, timeMs, c.data);
@@ -74,6 +76,9 @@ final class PuppetEncoder implements PictureEncoder, CameraAware {
         return u;
     }
 
-    @Override public void requestKeyFrame() { forceKey = true; }
+    /** Ignored: the filter asks for a key picture whenever it rebuilds its palette (so a video encoder can start afresh), but every Puppet key picture
+     *  carries its own palette and the points do not depend on it, so only the "Full picture every" interval makes key pictures (0.19 and 0.20 sent one
+     *  about every 5 s because of this: 4 of the 5 keys in the owner's recordings). */
+    @Override public void requestKeyFrame() { }
     @Override public void close() { marks.close(); points.close(); ex.close(); }
 }

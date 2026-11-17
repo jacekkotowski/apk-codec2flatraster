@@ -29,7 +29,7 @@ final class Landmarks implements java.io.Closeable {
     private byte[] rgba = new byte[0];
 
     /** Points of one frame in picture fractions (x, y in 0..1): face = 44 floats, body = 16 floats; null when not found. */
-    static final class Result { float[] face, body; byte[] mask; int mw, mh; /* person mask at the size given to the models: 1 = person */ }
+    static final class Result { float[] face, body; byte[] mask; int mw, mh; /* person mask at the size given to the models: 1 = person */ String maskNote = "pose model gave no mask"; }
 
     Landmarks(Context ctx) {
         face = FaceLandmarker.createFromOptions(ctx, FaceLandmarker.FaceLandmarkerOptions.builder()
@@ -73,8 +73,9 @@ final class Landmarks implements java.io.Closeable {
                 fb.rewind();
                 if (fb.remaining() >= mw * mh * 4) { java.nio.FloatBuffer f = fb.asFloatBuffer(); for (int i = 0; i < mw * mh; i++) r.mask[i] = (byte) (f.get(i) > 0.5f ? 1 : 0); }
                 else if (fb.remaining() >= mw * mh) for (int i = 0; i < mw * mh; i++) r.mask[i] = (byte) ((fb.get(i) & 255) > 127 ? 1 : 0);
-                else r.mask = null;
-            } catch (RuntimeException e) { r.mask = null; }          // no mask: the key picture is then the whole filter picture
+                else { r.mask = null; r.maskNote = "mask in an unknown format (" + fb.remaining() + " bytes for " + mw + "x" + mh + ")"; }
+                if (r.mask != null) r.maskNote = "person mask " + mw + "x" + mh;
+            } catch (RuntimeException e) { r.mask = null; r.maskNote = "mask failed: " + e; }          // no mask: the key picture is then the whole filter picture
         }
         return r;
     }

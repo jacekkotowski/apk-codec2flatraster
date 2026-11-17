@@ -218,6 +218,9 @@ public class MainActivity extends Activity implements CameraSource.Listener {
         Flat.track(flat, yPlane.getBuffer(), yPlane.getRowStride(), w, h);
     }
 
+    /** The status line's encoder text, live (the Puppet encoder reports whether it found the person mask). */
+    private String describeEncoder() { PictureEncoder en = enc; return en != null ? en.describe() : encoderInfo; }
+
     /** Camera thread: a frame between two pictures. The filter keeps the last six and joins them into the next picture. */
     @Override public void extra(Image img, int rotation, boolean mirror, long timeNs, int[] faceRect) {
         if (player != null && !recording) return;
@@ -344,6 +347,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
                 notice = ex.getMessage() == null ? "Recording did not start" : ex.getMessage();
                 return;
             }
+            Flat.reset(flat);                    // every recording starts with new colours picked from the scene (the same as the New colours now button)
             enc = e; frames = 0; skipped = 0;
             encoderInfo = e.describe();
             recStartNs = start = System.nanoTime();
@@ -453,7 +457,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             try {
                 JSONObject o = new JSONObject();
                 boolean rec = recording;
-                o.put("rec", rec).put("camera", cameraOn).put("exporting", exporting).put("encoder", encoderInfo);
+                o.put("rec", rec).put("camera", cameraOn).put("exporting", exporting).put("encoder", describeEncoder());
                 int[] s = SIZES[sizeIdx];
                 int w = portrait ? s[1] : s[0], h = portrait ? s[0] : s[1];
                 if (w != availW || h != availH) { avail = VideoEncoder.available(w, h); availW = w; availH = h; }
