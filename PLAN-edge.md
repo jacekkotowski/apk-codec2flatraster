@@ -164,4 +164,41 @@ From `CLAUDE.md` and `ROADMAP.md` 9.1, made specific:
 
 ## 9. Results
 
-(Empty. Each task writes here: date, task, figures, verdict.)
+### 2026-11-17, phase 1 (tasks 1.1 to 1.9), Sonnet session. Everything in `tools/edge/`; full tables in `tools/edge/results.md` (made by `tools/edge/table.py`, inputs from `run.sh`'s steps).
+
+**Verdict: G1 NOT passed. STOPPED for a stronger-model session (section 8: the legibility measures cannot be trusted on three of five clips; see "Why this is a stop" below).** Phase 2 and 3 not started.
+
+**Picture bytes per 30 s (K+M+P payloads, no record headers), edge variants against the 2000 B limit:**
+
+| clip | best edge variant | bytes | best fallback (0.17 path, any size, box, coder) | bytes |
+|---|---|---|---|---|
+| C1 talking, turns head | E6 (no patches) | 3804 | 160x120 face only, x264 | 5188 |
+| C2 two presenters (**only 1.2 s of source, looped**) | E6 | 4289 | 160x120 face only, x264 | 2984 |
+| C3 desk, hands | E6 | 4116 | 160x120 face only, x264 | 3677 |
+| C4 person, still camera | E7 (hold, no motion) | 1371 | 160x120 face only, x264 | 8099 |
+| C5 person, moving camera | E7 | 1363 | 160x120 face only, x264 | 10750 |
+
+E1 (the plan's main variant): 8768, 7486, 7959, 2382, 3130 B. Mean over clips: E1 5945, E6 3544, E7 3929. Patches cost 40 to 55% of E1's bytes on C1 to C3 (20 to 29 patches of about 150 to 185 B). The key picture alone is 1.3 to 2.3 kB on real clips (320 to 700 B on the made-up scene). Motion records: 15 to 53 B each at 2 a second, 0.7 to 3.1 kB per 30 s, so even motion alone is near the whole 2.0 kB budget on C2 and C3.
+
+**Gate G1 as the code evaluates it:** E7 passes 2 of 5 clips (C4, C5), no other variant passes any; G1 needs 4. The E7 passes are hollow, see below. Criterion 1 (at most 2000 B) holds only for E7 on C4 and C5, which send one key picture and hold it for 30 s (nothing moves). The closest an edge variant with motion gets: E1 2382 B on C4 (19% over; not within the 10% stop band).
+
+**Why this is a stop (section 8, "the legibility measures disagree with what the decoded video shows"):**
+1. MediaPipe's face landmarker finds a face in a posterized or drawn picture in only 0 to 17% of frames on C1 to C3 for *every* coder, including the 0.17 fallback at 320x240 (3 to 17%) and every edge variant (0 to 11%). On those clips face error, mouth r and hand found are not measurable (n/a) or noise. So criteria 2 and 3 compare nothing there; "not worse" passes by default.
+2. On C4 and C5 both sides score about 0 on mouth r (edge E1 -0.05 and 0.21; fallback -0.12 to 0.30), so "mouth r not worse" is also true of two pictures in which no mouth can be followed by this detector. The E7 passes on C4 and C5 rest on that: a held key picture, mouth r 0.02, face error 0.31 (C4) and 1.22 (C5), is scored equal to the fallback.
+3. What the decoded video shows (E1 on C1, C3): the warp works on the made-up head (mouth and head move, background stays) but on real clips with large pose change (C1: profile to frontal) the thin-plate spline twists the face into a swirl, and patches are pasted as visible rectangles. A good number there would have disagreed with the picture.
+What would be needed: a legibility measure that works on drawings (for example landmarks run on the camera frame and a face detector trained or tuned on drawings, or a small user study by the owner), before a verdict on criteria 2 and 3 means anything. Criterion 1 is measurable and is not met with motion: with the plan's design the picture is 2.4 to 9.9 kB on real clips, 1.2 to 5x the budget.
+
+**Observations and departures (each a measurement or a choice, for the next session to confirm):**
+- Clips: C1 played forward and back from 15.7 s; C3 from 10.0 s; C4 from 23.9 s; **C2 has only 1.2 s in the file (30 frames at 25/s), so its 30 s is that second repeated 25 times: not a real test of 30 s**; C5 32.9 s, used as is. All five have a face in 98.3 to 100% of frames (MediaPipe on every frame, not every 10th), so none dropped. Hands: C1 52%, C2 100%, C3 97%, C4 0%, C5 0.6% (checked on a picture: real hands). C4 and C5 have no hands, so hand criteria apply only to C1 to C3.
+- The made-up clip is **not** "no face" as the plan expected: MediaPipe finds a face in the cartoon head in 100% of frames.
+- Constant-speed motion prediction (plan section 3) measured 5 to 12% *worse* than last-position at 2 a second, better at 4 a second; `motion.py` uses last position at 2 a second and constant speed (factor 1/2) at 4. The head pose angles are not sent: the receiver warps from the points, which carry the pose.
+- Key coder: arithmetic coder beat zstd 19 on both maps on the made-up clip (edge map 181 against 261 B, colour map 109 against 179 B); "best" picks per map. Palette is 48 B of the key's 56 B header.
+- The key picture's landmark set is sent with the key (the warp needs the key's points): 36 to 83 B, counted in K.
+- Patch rule compares the warped picture with the drawing a patch of the box would show (both drawings), threshold 10/20/30 as E8/E1/E9: 20 and 10 differ by under 1.5%; 30 sends fewer (C1 15 patches against 27) for 25 to 35% fewer bytes, still over budget. No threshold reaches 2000 B on C1 to C3.
+- Defined here because the plan left them open: "legibility not worse" = within 0.05 of r and 5 points of a share; reference fallback = fewest-byte fallback at least as legible as the edge variant minus that tolerance; shown instants are every 2nd camera frame (8 a second), the fallback's picture is held. The fallback's face rectangle for the filter is made from MediaPipe's points (the app uses the camera's detector).
+- Fallback sizes per 30 s on real clips (exact / x264 / svt-av1): 160x120 face only 4.1 to 19.8 / 3.0 to 8.1 / 3.9 to 12.2 kB (C4 is the noisiest); **real camera noise makes the 0.17 path 3 to 10x its made-up-scene figures** and no fallback is near 2.0 kB either (best 3.0 kB on C2, which is the looped clip; 3.7 kB on C3). Neither path reaches the target on real clips (section 1's table was from a synthetic head).
+- Setup facts: mediapipe 1.2.3 needs `libegl1` and `libgles2` on Linux (apt); opencv-python-headless installed as 5.0.0 (requirements not pinned for it); model SHA-256 recorded in `get_models.sh`. The two outputs of `table.py` take about 25 minutes with 4 processes.
+- Tests passing in this phase: `keypic.py`, `motion.py`, `warp.py`, `patch.py`, `legible.py` self-tests (round trips exact, warp 0.00 px on a known shift, 5 px shift read as 5.0 px, identical frames score perfectly). `tests/run.sh` was not run (nothing outside `tools/edge/` changed).
+- Warp shows 237 frames, not 240: it never goes past the last received motion picture.
+
+**Tasks:** 1.1 to 1.9 done in the sense that the code exists, runs from `run.sh` and produced the tables. Gate G1: not passed (see above). Task ticks left unticked below pending the stronger session's reading of the measure.
