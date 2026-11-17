@@ -39,6 +39,17 @@ VARIANTS = {
     "E7": dict(warp=False),
     "E8": dict(thresh=10),          # E1 with the patch threshold 10 and 30 (PLAN-edge.md section 7: tuned in 1.9)
     "E9": dict(thresh=30),
+    # stage 1 after the budget was raised to 4 kB (PLAN-edge.md section 9): E6 (no patches) plus a refresh rule: a new key when the
+    # face has moved more than `move` of the picture width from where the key had it, or its size changed by more than `grow`,
+    # at least `key_gap` seconds after the last key
+    "E10": dict(patches=False, move=0.15, grow=0.25, key_gap=3),
+    "E11": dict(patches=False, move=0.25, grow=0.4, key_gap=3),
+    "E12": dict(patches=False, move=0.15, grow=0.25, key_gap=3, size=(96, 72), cmap=(16, 12), k=8),
+    "E13": dict(patches=False, move=0.15, grow=0.25, key_gap=3, size=(128, 96), cmap=(32, 24), k=8),
+    # plus a refresh when the head has turned more than `turn` degrees (yaw or pitch) from the key's pose (sender-side only: the
+    # receiver is simply sent a new key)
+    "E14": dict(patches=False, move=0.15, grow=0.25, turn=20, key_gap=3, size=(96, 72), cmap=(16, 12), k=8),
+    "E15": dict(patches=False, move=0.15, grow=0.25, turn=20, key_gap=3, size=(128, 96), cmap=(32, 24), k=8),
 }
 
 
@@ -115,6 +126,7 @@ def encode_clip(frames, marks, params, log=None):
     me = motion.MotionEncoder(p["step"])
     last_p = -10 ** 9
     last_key = 0
+    key_pose = None
     motion.ALPHA = 1 if p["per_second"] >= 4 else 0
     for n in range(n_slots):
         f = n * stride
@@ -131,7 +143,16 @@ def encode_clip(frames, marks, params, log=None):
             b = cv2.resize(cv2.cvtColor(ideal, cv2.COLOR_RGB2GRAY), (20, 15), interpolation=cv2.INTER_AREA).astype(np.float32)
             if (np.abs(a - b) > p["cut_diff"]).mean() > p["cut_blocks"]:
                 key_now = True
+        if not key_now and p.get("move") and rx.base_pts[0] is not None and cur_true[0] is not None and (n - last_key) >= p["key_gap"] * p["per_second"]:
+            a, b = rx.base_pts[0], cur_true[0]
+            sa, sb = np.sqrt(((a - a.mean(0)) ** 2).sum(1).mean()), np.sqrt(((b - b.mean(0)) ** 2).sum(1).mean())
+            if np.linalg.norm(b.mean(0) - a.mean(0)) / p["size"][0] > p["move"] or abs(np.log(max(sb, 1e-6) / max(sa, 1e-6))) > np.log(1 + p["grow"]):
+                key_now = True
+        if not key_now and p.get("turn") and marks["face"][f] and key_pose is not None and (n - last_key) >= p["key_gap"] * p["per_second"]:
+            if np.abs(marks["pose"][f, :2] - key_pose[:2]).max() > p["turn"]:
+                key_now = True
         if key_now:
+            key_pose = marks["pose"][f].copy() if marks["face"][f] else None
             kb, maps = _key_record(rgb, cur_true, p)
             me.reset()
             pb = me.encode(cur_true)
