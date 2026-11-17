@@ -10,19 +10,19 @@ import java.io.OutputStream;
 /**
  * Writes a .frv file: posterized video plus DRED voice as small self-checking packets.
  *
- * Header, 14 bytes: "FRV1", version (2), video codec, width (2), height (2), DRED bitstream version, DRED level q, CRC16 (2).
+ * Header, 14 bytes: "FRV1", version (2, or 3 when the video codec is 3, Exact: each KEY/DELTA packet then holds one picture of jni/flatcode.c, see tools/coder/flatcoder.py for its layout), video codec (0 H.264, 1 HEVC, 2 AV1, 3 Exact), width (2), height (2), DRED bitstream version, DRED level q, CRC16 (2).
  * Version 1 (up to 0.12) had Codec 2 voice: byte 10 was the Codec 2 mode, byte 11 was 0.
  * An AUDIO packet holds one DRED block, one second of sound; its time is the time of the block's first sound. An empty one is a second of silence.
  * Packet: 0xF5 0x7A, type, time in ms (4), payload length (3), payload, CRC16 (2) over type..payload.
  * All numbers are big-endian. Each packet can be checked alone, so a damaged part costs only itself.
  */
 final class FrvWriter implements Closeable {
-    static final int VERSION = 2, HEADER = 14, OVERHEAD = 12;
+    static final int VERSION = 2, VERSION_EXACT = 3, HEADER = 14, OVERHEAD = 12;
     static final int SYNC0 = 0xF5, SYNC1 = 0x7A;
     static final int CONFIG = 1, KEY = 2, DELTA = 3, AUDIO = 4;
-    static final int AVC = 0, HEVC = 1, AV1 = 2;
+    static final int AVC = 0, HEVC = 1, AV1 = 2, EXACT = 3; // EXACT: the posterized picture coded by Exact (jni/flatcode.c), no phone video codec; file version 3
     static final String[] MIME = {"video/avc", "video/hevc", "video/av01"};
-    static final String[] CODEC_NAME = {"H.264", "HEVC", "AV1"};
+    static final String[] CODEC_NAME = {"H.264", "HEVC", "AV1", "Exact"};
 
     private final OutputStream out;
     volatile long bytes, videoBytes, audioBytes; // read by the status line from another thread
@@ -34,7 +34,7 @@ final class FrvWriter implements Closeable {
 
     FrvWriter(OutputStream o, int codec, int width, int height, int bitstream, int q) throws IOException {
         out = o;
-        byte[] h = {'F', 'R', 'V', '1', VERSION, (byte) codec, (byte) (width >> 8), (byte) width, (byte) (height >> 8), (byte) height, (byte) bitstream, (byte) q, 0, 0};
+        byte[] h = {'F', 'R', 'V', '1', (byte) (codec == EXACT ? VERSION_EXACT : VERSION), (byte) codec, (byte) (width >> 8), (byte) width, (byte) (height >> 8), (byte) height, (byte) bitstream, (byte) q, 0, 0};
         int c = crc16(h, 0, 12);
         h[12] = (byte) (c >> 8); h[13] = (byte) c;
         out.write(h); bytes = HEADER;

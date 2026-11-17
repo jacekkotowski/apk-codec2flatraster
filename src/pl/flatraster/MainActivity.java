@@ -82,7 +82,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
     private int fw, fh, fk;
     private byte[] i420;
     private int[] argb;
-    private VideoEncoder enc;
+    private PictureEncoder enc;
     private FrvWriter writer;
     private long recStartNs;
     private long lastPalNs; // when the palette was last built; guarded by lock
@@ -324,11 +324,12 @@ public class MainActivity extends Activity implements CameraSource.Listener {
         synchronized (lock) {
             if (flat == 0 || !cameraOn) { notice = "The camera has not started yet"; return; }
             File f = new File(dir(this), new SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.ROOT).format(new Date()) + ".frv");
-            VideoEncoder e = null;
+            PictureEncoder e = null;
             try {
                 // The sink reads `writer` when a packet comes out, which is always after it is set below.
-                e = new VideoEncoder(wantCodec, fw, fh, fps, kbps * 1000, keySec, (type, t, d) -> { FrvWriter fw2 = writer; if (fw2 != null) fw2.write(type, t, d, 0, d.length); });
-                writer = new FrvWriter(f, e.codec, fw, fh, VoiceBridge.bitstream(), voiceQ);
+                PictureEncoder.Sink sink = (type, t, d) -> { FrvWriter fw2 = writer; if (fw2 != null) fw2.write(type, t, d, 0, d.length); };
+                e = wantCodec == FrvWriter.EXACT ? new ExactEncoder(flat, fw, fh, keySec, sink) : new VideoEncoder(wantCodec, fw, fh, fps, kbps * 1000, keySec, sink);
+                writer = new FrvWriter(f, e.codec(), fw, fh, VoiceBridge.bitstream(), voiceQ);
             } catch (Exception ex) {
                 if (e != null) e.close();
                 writer = null; f.delete();
@@ -336,7 +337,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
                 return;
             }
             enc = e; frames = 0; skipped = 0;
-            encoderInfo = FrvWriter.CODEC_NAME[e.codec] + " " + fw + "x" + fh + ", asked " + (e.bitrate / 100 / 10.0) + " kbps (" + e.name + ")";
+            encoderInfo = e.describe();
             recStartNs = start = System.nanoTime();
             lastPalNs = start;
             recording = true;
@@ -382,6 +383,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
         final Player[] self = new Player[1];
         self[0] = player = new Player(f, new Player.View() {
             @Override public void picture(int[] px, int w, int h) { if (player == self[0]) show(px, w, h, 40); }
+            @Override public void picture(int[] px, int w, int h, int tol) { if (player == self[0]) show(px, w, h, tol); }
             @Override public void finished(String error) {
                 if (error != null) notice = error;
                 if (player == self[0]) { player = null; playName = null; }
@@ -529,7 +531,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
                 keySec = Math.max(1, Math.min(600, o.optInt("key", keySec)));
                 skipSilence = o.optBoolean("skip", skipSilence);
                 lockLight = o.optBoolean("lock", lockLight);
-                wantCodec = Math.max(-1, Math.min(FrvWriter.MIME.length - 1, o.optInt("codec", wantCodec)));
+                wantCodec = Math.max(-1, Math.min(FrvWriter.EXACT, o.optInt("codec", wantCodec)));
                 // Sound, as in Codec2 Recorder. Rec level, sensitivity and hold apply at once, also while recording; the rest from the next recording.
                 sound.gainDb = o.optBoolean("auto", true) ? -100 : Math.max(-12, Math.min(36, o.optInt("rl", 12)));
                 sound.sensitivity = Math.max(1, Math.min(10, o.optInt("sens", sound.sensitivity)));

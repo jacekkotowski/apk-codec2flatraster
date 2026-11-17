@@ -25,10 +25,10 @@ final class FrvReader {
         if (b.length < FrvWriter.HEADER || b[0] != 'F' || b[1] != 'R' || b[2] != 'V' || b[3] != '1') throw new IOException("not a FlatRaster recording");
         if (FrvWriter.crc16(b, 0, 12) != ((b[12] & 255) << 8 | (b[13] & 255))) throw new IOException("the file header is damaged");
         if (b[4] == 1) throw new IOException("made with Codec 2 voice by version 0.12 or older, which this version can't play");
-        if (b[4] != FrvWriter.VERSION) throw new IOException("made by a newer version of the app");
+        if (b[4] != FrvWriter.VERSION && b[4] != FrvWriter.VERSION_EXACT) throw new IOException("made by a newer version of the app");
         codec = b[5] & 255; width = (b[6] & 255) << 8 | (b[7] & 255); height = (b[8] & 255) << 8 | (b[9] & 255); bitstream = b[10] & 255; q = b[11] & 255;
         if (bitstream != BITSTREAM) throw new IOException("its voice was made by a different version of DRED (" + bitstream + "), which this version can't play");
-        if (codec >= FrvWriter.MIME.length) throw new IOException("unknown video format");
+        if (codec > FrvWriter.EXACT || (b[4] == FrvWriter.VERSION_EXACT) != (codec == FrvWriter.EXACT)) throw new IOException("unknown video format");
         int o = FrvWriter.HEADER;
         while (o + FrvWriter.OVERHEAD <= b.length) {
             if ((b[o] & 255) == FrvWriter.SYNC0 && (b[o + 1] & 255) == FrvWriter.SYNC1) {

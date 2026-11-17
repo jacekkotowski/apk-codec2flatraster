@@ -18,6 +18,8 @@ import pl.dyktafon.VoiceBridge;
 final class Player {
     interface View {
         void picture(int[] argb, int w, int h);
+        /** tol: 0 for an exact picture, about 40 for one decoded from video (see MainActivity.show). */
+        default void picture(int[] argb, int w, int h, int tol) { picture(argb, w, h); }
         void finished(String error);
     }
 
@@ -53,11 +55,12 @@ final class Player {
     private void play(File file, View view) throws Exception {
         FrvReader r = new FrvReader(file);
         durationMs = r.durationMs();
-        MediaCodec dec = null; Thread audio = null;
+        MediaCodec dec = null; Thread audio = null; Exact exact = null; int[] exactPx = null;
         try {
             boolean hasVideo = false, hasAudio = false;
             for (FrvReader.Packet p : r.packets) { hasVideo |= p.type == FrvWriter.KEY; hasAudio |= p.type == FrvWriter.AUDIO; }
-            if (hasVideo) {
+            if (hasVideo && r.codec == FrvWriter.EXACT) { exact = new Exact(r.width, r.height); exactPx = new int[r.width * r.height]; }
+            else if (hasVideo) {
                 MediaFormat f = videoFormat(r);
                 f.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible);
                 dec = MediaCodec.createDecoderByType(FrvWriter.MIME[r.codec]);
@@ -81,7 +84,10 @@ final class Player {
                 }
                 if (!running) return;
                 if (p.type == FrvWriter.AUDIO) continue;
-                if ((p.type == FrvWriter.KEY || p.type == FrvWriter.DELTA) && dec != null) {
+                if ((p.type == FrvWriter.KEY || p.type == FrvWriter.DELTA) && exact != null) {
+                    if (p.type == FrvWriter.KEY) gotKey = true;
+                    if (gotKey && exact.decode(p.type, p.data, exactPx)) view.picture(exactPx.clone(), r.width, r.height, 0); // a damaged picture is skipped; the next good key picture repairs it
+                } else if ((p.type == FrvWriter.KEY || p.type == FrvWriter.DELTA) && dec != null) {
                     if (p.type == FrvWriter.KEY) gotKey = true;
                     if (!gotKey) continue; // pictures before the first full one can't be decoded
                     int in = dec.dequeueInputBuffer(100_000);
@@ -97,6 +103,7 @@ final class Player {
             positionMs = durationMs;
         } catch (InterruptedException ignored) {
         } finally {
+            if (exact != null) exact.close();
             if (dec != null) { try { dec.stop(); } catch (Exception ignored) {} dec.release(); }
             if (audio != null) { soundStop = true; audio.interrupt(); try { audio.join(2000); } catch (InterruptedException ignored) {} }
         }

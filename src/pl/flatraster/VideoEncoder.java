@@ -12,14 +12,13 @@ import java.util.HashMap;
 import java.util.List;
 
 /** Encodes posterized I420 frames with the phone's own encoder: AV1 if it has one, else HEVC, else H.264. */
-final class VideoEncoder {
-    interface Sink { void video(int type, long timeMs, byte[] data) throws java.io.IOException; }
+final class VideoEncoder implements PictureEncoder {
 
     final int codec;        // FrvWriter.AVC, HEVC or AV1
     final String name;      // encoder component name, for the status line
     final int bitrate;      // bit/s actually asked for, after the encoder's limits
     private final MediaCodec mc;
-    private final Sink sink;
+    private final PictureEncoder.Sink sink;
     private final int w, h, declFps;
     private final MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
     private final HashMap<Long, Long> realTime = new HashMap<>();
@@ -56,7 +55,7 @@ final class VideoEncoder {
      * keySeconds: how often a full picture is made; longer is smaller, but a lost packet hurts for longer.
      * Throws IllegalStateException with a plain message if no encoder on the phone can do it.
      */
-    VideoEncoder(int wanted, int w, int h, double fps, int bitsPerSecond, int keySeconds, Sink sink) {
+    VideoEncoder(int wanted, int w, int h, double fps, int bitsPerSecond, int keySeconds, PictureEncoder.Sink sink) {
         this.w = w; this.h = h; this.sink = sink;
         declFps = Math.max(1, (int) Math.round(fps));
         int[] order = wanted >= 0 ? new int[]{wanted} : new int[]{FrvWriter.AV1, FrvWriter.HEVC, FrvWriter.AVC};
@@ -96,8 +95,11 @@ final class VideoEncoder {
         mc = made; codec = madeCodec; bitrate = madeRate; name = made.getName();
     }
 
+    @Override public int codec() { return codec; }
+    @Override public String describe() { return FrvWriter.CODEC_NAME[codec] + " " + w + "x" + h + ", asked " + (bitrate / 100 / 10.0) + " kbps (" + name + ")"; }
+
     /** Encodes one frame. timeMs is the real capture time written to the file. */
-    void encode(byte[] i420, long timeMs) throws java.io.IOException {
+    @Override public void encode(byte[] i420, long timeMs) throws java.io.IOException {
         int in = mc.dequeueInputBuffer(200_000);
         if (in >= 0) {
             Image img = mc.getInputImage(in);
@@ -158,7 +160,7 @@ final class VideoEncoder {
     }
 
     /** Asks the encoder to make the next picture a full one. Some encoders ignore this; the next regular key picture then comes as usual. */
-    void requestKeyFrame() {
+    @Override public void requestKeyFrame() {
         try {
             android.os.Bundle b = new android.os.Bundle();
             b.putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0);
@@ -167,7 +169,7 @@ final class VideoEncoder {
     }
 
     /** Flushes the frames still inside the encoder and frees it. */
-    void close() {
+    @Override public void close() {
         try {
             int in = mc.dequeueInputBuffer(200_000);
             if (in >= 0) { mc.queueInputBuffer(in, 0, 0, frameNo * 1_000_000L / declFps, MediaCodec.BUFFER_FLAG_END_OF_STREAM); drain(true); }
