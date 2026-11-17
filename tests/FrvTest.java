@@ -63,7 +63,7 @@ public class FrvTest {
         check(threw, "damaged header is refused");
 
         // Headers with a good CRC that the app must still refuse, each with a sentence.
-        String[][] cases = {{"1", "12", "Codec 2"}, {"4", "12", "newer version"}, {"2", "13", "different version of DRED"}};
+        String[][] cases = {{"1", "12", "Codec 2"}, {"5", "12", "newer version"}, {"2", "13", "different version of DRED"}};
         for (String[] c : cases) {
             byte[] h = {'F', 'R', 'V', '1', (byte) Integer.parseInt(c[0]), 2, 1, 64, 0, (byte) 240, (byte) Integer.parseInt(c[1]), 9, 0, 0};
             int k = FrvWriter.crc16(h, 0, 12); h[12] = (byte) (k >> 8); h[13] = (byte) k;

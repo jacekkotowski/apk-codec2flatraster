@@ -27,7 +27,7 @@ final class Landmarks implements java.io.Closeable {
     private long lastTs = -1;
     private byte[] rgba = new byte[0];
 
-    /** Points of one frame in picture fractions (x, y in 0..1): face = 44 floats, body = 50 floats; null when not found. */
+    /** Points of one frame in picture fractions (x, y in 0..1): face = 44 floats, body = 16 floats; null when not found. */
     static final class Result { float[] face, body; }
 
     Landmarks(Context ctx) {
@@ -61,7 +61,7 @@ final class Landmarks implements java.io.Closeable {
         if (!pr.landmarks().isEmpty()) {
             List<NormalizedLandmark> l = pr.landmarks().get(0);
             r.body = new float[PuppetDraw.BODY * 2];
-            for (int i = 0; i < PuppetDraw.BODY; i++) { r.body[2 * i] = l.get(i).x(); r.body[2 * i + 1] = l.get(i).y(); }
+            for (int i = 0; i < PuppetDraw.BODY; i++) { NormalizedLandmark q = l.get(PuppetDraw.BODY_IDX[i]); r.body[2 * i] = q.x(); r.body[2 * i + 1] = q.y(); }
         }
         return r;
     }

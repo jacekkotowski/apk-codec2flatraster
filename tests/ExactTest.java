@@ -54,7 +54,7 @@ public class ExactTest {
         enc.close(); wr.close();
         byte[] file = bo.toByteArray();
         FrvReader rd = new FrvReader(file);
-        check(file[4] == 3 && rd.codec == FrvWriter.EXACT && rd.width == w && rd.height == h, "file is version 3 with codec Exact");
+        check(file[4] == 4 && rd.codec == FrvWriter.EXACT && rd.width == w && rd.height == h, "file is version 4 with codec Exact");
         check(rd.packets.size() == n && rd.skippedBytes == 0, "all " + n + " pictures in the file");
         Exact dec = new Exact(w, h); int[] px = new int[w * h]; boolean same = true; int k = 0;
         for (int i = 0; i < rd.packets.size(); i++) {
@@ -82,9 +82,9 @@ public class ExactTest {
         // an old reader's view: version 2 files still read, and a version 3 header with another codec is refused
         ByteArrayOutputStream b2 = new ByteArrayOutputStream(); new FrvWriter(b2, FrvWriter.AV1, 64, 48, FrvReader.BITSTREAM, 9).close();
         check(new FrvReader(b2.toByteArray()).codec == FrvWriter.AV1, "a version 2 file (AV1) still reads");
-        byte[] h3 = b2.toByteArray(); h3[4] = 3; int c = FrvWriter.crc16(h3, 0, 12); h3[12] = (byte) (c >> 8); h3[13] = (byte) c;
+        byte[] h3 = b2.toByteArray(); h3[4] = 4; int c = FrvWriter.crc16(h3, 0, 12); h3[12] = (byte) (c >> 8); h3[13] = (byte) c;
         boolean refused = false; try { new FrvReader(h3); } catch (java.io.IOException e) { refused = true; }
-        check(refused, "a version 3 header with a video codec is refused");
+        check(refused, "a version 4 header with a video codec is refused");
         Flat.destroy(flat); dec.close(); fresh.close();
         System.exit(fails == 0 ? 0 : 1);
     }
