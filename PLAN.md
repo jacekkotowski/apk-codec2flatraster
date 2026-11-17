@@ -1,9 +1,10 @@
 # FlatRaster plan
 
-Last updated: 2026-11-17 (0.17: hold the face still, flat background; second part of stage 6b)
+Last updated: 2026-11-17 (PLAN-edge.md: edge-drawing codec over DATAC1, tasks for Sonnet)
 
 ## Start here
 
+- **Next work: `PLAN-edge.md` (2026-11-17), the owner's edge-drawing codec, written as tasks for a Sonnet session.** The owner's decision: send over FreeDV DATAC1 now, DATAC3 later, as an upgrade of FlatRaster. That leaves about 530 bit/s for the picture (a 30 s clip with voice on air in 60 s), 2.3x less than the best computer encoder on 0.17's test. Phase 1 is a computer measurement with a pass rule set in advance (gate G1). **It needs real clips from the owner** (`PLAN-edge.md` section 4), or access to media.xiph.org. Nothing of it is built yet.
 - **0.17 (2026-11-17) holds the face still and flattens the background** (stage 6b, ROADMAP.md 7.3 items 2 and 4, asked for by the owner). Built and tested on a computer; **nothing in it has run on a phone**; APK `dist/FlatRaster-0.17.apk`, installs over 0.16. The plan, the measurement and the open work are in "0.17: hold the face still" below. In short: new settings **Hold face still** (default Off) and **Face box** (default Head). On a made-up talking head, with a face detector that trembles by 3 pixels, 30 s needs **27 to 43% fewer bytes** with the face-only box and 8 to 34% fewer with the head box, and 83% fewer changed pixels per picture with the face-only box, with the mouth still followable (r 0.97) and the eyes better visible.
 - **What the owner should look at on the phone** (in this order; the phone's face detection is needed, so use the front or back camera that says "Waiting for a face" then "Holding the face still"):
   1. Hold face still On, Face box Head, then Face only: does the face stay put? Is the flat grey around it acceptable? Does it follow when you move your head, and recover when you turn away and come back?
