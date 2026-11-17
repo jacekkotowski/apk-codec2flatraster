@@ -108,6 +108,7 @@ def encode_clip(frames, marks, params, log=None):
     sc = p["scale"]
     stride = p["stride"]
     n_slots = len(frames) // stride
+    p["n_slots"] = n_slots          # the container knows the clip length; needed when trailing slots have no record (E7)
     cscale = 640 / p["size"][0]           # camera pixels per coded pixel
     recs = []
     rx = Receiver(p)
@@ -168,13 +169,14 @@ def decode_clip(records, params):
     by_slot = {}
     for t, s, b in records:
         by_slot.setdefault(s, []).append((t, b))
-    n_slots = max(by_slot) + 1 if by_slot else 0
-    last = max(by_slot) if by_slot else -1
+    n_slots = p.get("n_slots") or (max(by_slot) + 1 if by_slot else 0)
     for s in range(n_slots):
         recs = by_slot.get(s)
         if recs is None:
             rx.hold_slot()
             continue
+        if not any(t in "KM" for t, _ in recs):
+            rx.hold_slot()                      # E7: a slot with a patch but no motion record
         for t, b in recs:
             if t == "K":
                 rx.key(b)
@@ -254,9 +256,11 @@ def decode_slots(recs, p):
     bs = {}
     for t, s, b in recs:
         bs.setdefault(s, []).append((t, b))
-    for s in range(max(bs) + 1):
+    for s in range(p.get("n_slots") or max(bs) + 1):
         if s not in bs:
             rx.hold_slot(); continue
+        if not any(t in "KM" for t, _ in bs[s]):
+            rx.hold_slot()
         for t, b in bs[s]:
             {"K": rx.key, "M": rx.motion, "P": rx.patch}[t](b)
     return rx.slots
