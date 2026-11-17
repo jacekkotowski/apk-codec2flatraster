@@ -6,6 +6,8 @@ Written 2026-11-17 (on the stronger model) from the owner's draft "Ultra-Low Bit
 
 ## 1. The target, in numbers
 
+**Budget raised (2026-11-17, owner's decision, left to Sonnet's judgement: "raise the budget or more bytes"; "up to you").** Phase 1 showed 2.0 kB for the picture is not reachable on real clips with any design (section 9). New budget: **picture at most 4.0 kB per 30 s; whole clip with voice (1.5 kB) at most about 5.5 kB, so at most about 90 s on air on DATAC1 and about 4.2 min on DATAC3.** Everywhere below, "2.0 kB" and "3.6 kB total" in sections 1 and 5 now read 4.0 kB and 5.5 kB, and "60 s on DATAC1" reads 90 s. Gate G1 criterion 1 is now "at most 4000 B per 30 s"; criteria 2 and 3 are unchanged but cannot be decided with MediaPipe on drawings (section 9), so G1 is **not re-run on the new limit until the legibility measure works on drawings or the owner has looked at the videos**. For reference only, at 4000 B variant E6 (no patches) fits on C1, C4, C5 (3804, 2382, 3130 B) and misses C2 and C3 by 7% and 3% (4289, 4116 B): within 10% of the limit, so that result must not be read as a pass either.
+
 The owner's decision (2026-11-17): **the link is FreeDV DATAC1 now, DATAC3 later; FlatRaster is upgraded, no new app.** The modem and transport are Codec2 Recorder's (`libfdv.so`, `Fountain`, `RadioLink`), which send a whole file with repair frames.
 
 What the link carries, from the recorder's measured burst times (its `PLAN.md`, "Time on air"): DRED smallest, 2.1 kB, +50% repair, takes 35 s in Fast (DATAC1) and 1.6 min in Robust (DATAC3). So the **useful rate is about 480 bit/s (60 bytes a second) on DATAC1 and about 175 bit/s (22 bytes a second) on DATAC3**, repair frames included.
