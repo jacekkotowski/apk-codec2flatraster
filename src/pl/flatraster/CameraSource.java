@@ -26,9 +26,9 @@ final class CameraSource {
     interface Listener {
         /** The image is closed after this returns. rotation: degrees clockwise to make the picture upright. */
         /** faces: boxes of x0,y0,x1,y1 in the image's own pixels, already widened to head and shoulders; empty if none. */
-        void frame(Image img, int rotation, boolean mirror, long timeNs, int[] faces);
+        void frame(Image img, int rotation, boolean mirror, long timeNs, int[] faces, int[] faceRect);
         /** A camera frame between two pictures (only while setGather is on). The image is closed after this returns. */
-        void extra(Image img, int rotation, boolean mirror, long timeNs);
+        void extra(Image img, int rotation, boolean mirror, long timeNs, int[] faceRect);
         void cameraError(String message);
     }
 
@@ -51,6 +51,8 @@ final class CameraSource {
     /** True if this camera reports faces itself (most do). */
     volatile boolean faceSupported;
     private volatile int[] faces = new int[0];
+    /** The first face's rectangle as the camera reported it: centre x, y, width, height in the image's pixels, or null. Not widened or snapped. */
+    private volatile int[] faceRect;
     private long facesNs;
     private int activeW, activeH, imgW, imgH;
 
@@ -140,11 +142,11 @@ final class CameraSource {
             long now = System.nanoTime();
             int rot = front ? (sensorDegrees + deviceDegrees) % 360 : (sensorDegrees - deviceDegrees + 360) % 360;
             if (now - lastNs < (long) (1e9 / fps) - 5_000_000L) { // not due yet: the frame is joined into the next picture, or dropped
-                if (gather) listener.extra(img, rot, false, now);
+                if (gather) listener.extra(img, rot, false, now, faceRect);
                 return;
             }
             lastNs = now;
-            listener.frame(img, rot, false, now, faces); // front camera is not mirrored: the recording shows the scene as it is
+            listener.frame(img, rot, false, now, faces, faceRect); // front camera is not mirrored: the recording shows the scene as it is
         } catch (IllegalStateException ignored) {
         } finally { if (img != null) img.close(); }
     }
@@ -170,7 +172,7 @@ final class CameraSource {
         Face[] fs = res.get(CaptureResult.STATISTICS_FACES);
         long now = System.nanoTime();
         if (fs == null || fs.length == 0) {
-            if (now - facesNs > 2_000_000_000L) faces = new int[0]; // keep the last boxes for 2 s: detection drops out briefly when a head turns
+            if (now - facesNs > 2_000_000_000L) { faces = new int[0]; faceRect = null; } // keep the last boxes for 2 s: detection drops out briefly when a head turns
             return;
         }
         // The image is the middle part of the sensor's crop region with the image's shape, scaled down.
@@ -181,6 +183,9 @@ final class CameraSource {
         double ox = crop.left + (cw - vw) / 2, oy = crop.top + (ch - vh) / 2;
         int n = Math.min(4, fs.length);
         int[] out = new int[4 * n];
+        { Rect b = fs[0].getBounds(); // the first face as it is, for holding the face still
+            faceRect = new int[]{(int) ((((b.left + b.right) / 2.0) - ox) * imgW / vw), (int) ((((b.top + b.bottom) / 2.0) - oy) * imgH / vh),
+                    (int) (b.width() * imgW / vw), (int) (b.height() * imgH / vh)}; }
         for (int i = 0; i < n; i++) {
             Rect b = fs[i].getBounds();
             double x0 = (b.left - ox) * imgW / vw, x1 = (b.right - ox) * imgW / vw, y0 = (b.top - oy) * imgH / vh, y1 = (b.bottom - oy) * imgH / vh;

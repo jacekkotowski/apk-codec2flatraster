@@ -15,6 +15,15 @@ final class Flat {
      *  into its picture: it starts from the sharpest and averages the others in where they agree. Returns -1 if the frame was refused. */
     static native int gather(long h, ByteBuffer y, int yStride, ByteBuffer u, ByteBuffer v, int uvStride, int uvPixelStride,
                              int srcW, int srcH, int rotation, boolean mirror);
+    /** Holds the face still: the picture is a window of the camera frame that follows the face, and the focus box follows the window. Call
+     *  before every process, gather and track, with the camera's face rectangle (centre and size in camera-frame pixels; cx < 0: no
+     *  face seen). zoom: 125 makes the window 80% of the frame. alpha: thousandths of the way the smoothed face position moves per call.
+     *  dead: camera pixels the face may move before a detector-driven window follows (0 always). box: thousandths of the face's size
+     *  the box extends beyond it on every side, or -1 to leave the boxes to setFocus (whose level is used either way). See jni/flat.h. */
+    static native void setHold(long h, int cx, int cy, int faceW, int faceH, int zoom, int alpha, int dead, int box);
+    /** Measures the face's movement since the previous camera frame from the brightness plane, so the window does not follow the face
+     *  detector's trembling. Call after setHold for every camera frame. */
+    static native void track(long h, ByteBuffer y, int yStride, int srcW, int srcH);
     /** Forgets the gathered frames, for when they have gone stale. */
     static native void clearGathered(long h);
     /** What the last process() joined: frames gathered | which it started from (0 the newest) << 8 | the noise limit it used << 16. */

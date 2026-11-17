@@ -3,6 +3,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define TRK_W 56  /* the tracked patch: 56 x 76 at half size, so 112 x 152 camera pixels, the inside of a face rectangle */
+#define TRK_H 76
+#define TRK_R 5   /* search +-5 at half size: +-10 camera pixels between two frames */
+
 struct Flat {
     int w, h, k, have, bad;
     uint8_t *y, *u, *v;      /* current frame, smoothed in place */
@@ -16,7 +20,14 @@ struct Flat {
     int ignoring;
     uint8_t *focus;          /* 1 where the pixel lies inside a focus box (a face) */
     int box[4 * FLAT_MAX_FOCUS], boxes, coarse;
-    uint8_t merge[2][FLAT_MAX_COLORS];
+    uint8_t merge[3][FLAT_MAX_COLORS];
+    double hx, hy, wx, wy, bw, bh; /* the face's centre and size, smoothed, and the window's middle, in camera-frame pixels; hx < 0 before the first face */
+    int zoom;                /* hundredths */
+    int boxw;                /* flat_set_hold's box1000 */
+    int tracking, trackAge;  /* an image-based anchor is in use; calls to flat_set_hold since the last flat_track */
+    double ax, ay;           /* the anchor: where the face is, from the image, in camera-frame pixels */
+    uint8_t ref[TRK_W * TRK_H]; int refX, refY, haveRef; /* the face rectangle's brightness in the previous frame, half size, and its top left */
+    int winL, winT, winW, winH; /* the last window, thousandths of the upright picture */
     int sep[FLAT_MAX_COLORS][FLAT_MAX_COLORS];
     int round;
     uint8_t py[FLAT_MAX_COLORS], pu[FLAT_MAX_COLORS], pv[FLAT_MAX_COLORS]; /* colours shown */
@@ -39,6 +50,7 @@ Flat *flat_create(int w, int h, int colors) {
     if (w < 2 || h < 2 || (w & 1) || (h & 1)) return NULL;
     Flat *f = calloc(1, sizeof(Flat));
     if (!f) return NULL;
+    f->hx = f->hy = -1; f->zoom = 100;
     f->w = w; f->h = h; f->k = colors < 2 ? 2 : colors > FLAT_MAX_COLORS ? FLAT_MAX_COLORS : colors;
     size_t n = (size_t)w * h;
     uint8_t *block = calloc(18, n);
@@ -58,8 +70,96 @@ void flat_set_round(Flat *f, int passes) { f->round = passes < 0 ? 0 : passes > 
 void flat_set_focus(Flat *f, const int *rects, int count, int coarse) {
     f->boxes = count < 0 ? 0 : count > FLAT_MAX_FOCUS ? FLAT_MAX_FOCUS : count;
     if (f->boxes) memcpy(f->box, rects, sizeof(int) * 4 * f->boxes);
-    f->coarse = coarse < 0 ? 0 : coarse > 2 ? 2 : coarse;
+    f->coarse = coarse < 0 ? 0 : coarse > 3 ? 3 : coarse;
 }
+
+/* The focus box that moves with the window (see flat_set_hold). */
+static void holdBox(Flat *f) {
+    if (f->boxw < 0 || f->hx < 0) return;
+    double gx = f->bw * (0.5 + f->boxw / 1000.0), gy = f->bh * (0.5 + f->boxw / 1000.0);
+    f->box[0] = (int)(f->wx - gx); f->box[1] = (int)(f->wy - gy); f->box[2] = (int)(f->wx + gx + 0.5); f->box[3] = (int)(f->wy + gy + 0.5);
+    f->boxes = 1;
+}
+
+void flat_set_hold(Flat *f, int cx, int cy, int fw, int fh, int zoom100, int alpha1000, int deadzone, int box1000) {
+    f->zoom = zoom100 < 100 ? 100 : zoom100 > 300 ? 300 : zoom100;
+    f->boxw = box1000;
+    if (cx < 0) { f->trackAge++; holdBox(f); return; } /* no face this time: the window and the box stay where they were */
+    double a = alpha1000 < 1 ? 0.001 : alpha1000 > 1000 ? 1 : alpha1000 / 1000.0;
+    if (f->hx < 0) { f->hx = f->wx = f->ax = cx; f->hy = f->wy = f->ay = cy; f->bw = fw; f->bh = fh; }
+    else { f->hx += a * (cx - f->hx); f->hy += a * (cy - f->hy); f->bw += a / 4 * (fw - f->bw); f->bh += a / 4 * (fh - f->bh); }
+    if (f->trackAge++ > 3) f->tracking = 0; /* flat_track is not being called: follow the detector */
+    if (!f->tracking) {
+        double dx = f->hx - f->wx, dy = f->hy - f->wy;
+        if (deadzone <= 0 || dx * dx + dy * dy > (double)deadzone * deadzone) { f->wx = f->hx; f->wy = f->hy; }
+        f->ax = f->wx; f->ay = f->wy;
+    }
+    holdBox(f);
+}
+
+/* Half-size copy of a region of the brightness plane: out[j * w + i] = the mean of the 2 x 2 camera pixels at (x0 + 2i, y0 + 2j). */
+static void halve(const uint8_t *y, int stride, int x0, int y0, int w, int h, uint8_t *out) {
+    for (int j = 0; j < h; j++) for (int i = 0; i < w; i++) {
+        const uint8_t *p = y + (size_t)(y0 + 2 * j) * stride + x0 + 2 * i;
+        out[j * w + i] = (uint8_t)((p[0] + p[1] + p[stride] + p[stride + 1] + 2) >> 2);
+    }
+}
+
+void flat_track(Flat *f, const uint8_t *y, int yStride, int sw, int sh) {
+    f->trackAge = 0;
+    if (f->hx < 0 || f->zoom <= 100) return;
+    /* the patch around the anchor, moved inside the frame, with room for the search */
+    const int mw = TRK_W + 2 * TRK_R, mh = TRK_H + 2 * TRK_R;
+    int px = ((int)(f->ax + 0.5) - TRK_W - 2 * TRK_R) & ~1, py = ((int)(f->ay + 0.5) - TRK_H - 2 * TRK_R) & ~1; /* top left of the patch plus its margin, even */
+    if (px < 0) px = 0;
+    if (py < 0) py = 0;
+    if (px + 2 * mw > sw) px = (sw - 2 * mw) & ~1;
+    if (py + 2 * mh > sh) py = (sh - 2 * mh) & ~1;
+    if (px < 0 || py < 0) return;
+    uint8_t cur[(TRK_W + 2 * TRK_R) * (TRK_H + 2 * TRK_R)];
+    halve(y, yStride, px, py, mw, mh, cur);
+    f->tracking = 1;
+    if (f->haveRef) {
+        /* where the reference patch (taken in the previous frame at refX, refY) best matches in this frame: SAD over +-TRK_R */
+        int ox = (f->refX - px) / 2 + 0, oy = (f->refY - py) / 2 + 0; /* the reference's top left inside `cur`, at half size */
+        int best = 1 << 30, bdx = 0, bdy = 0; int sad[2 * TRK_R + 1][2 * TRK_R + 1];
+        for (int dy = -TRK_R; dy <= TRK_R; dy++) for (int dx = -TRK_R; dx <= TRK_R; dx++) {
+            int sx0 = ox + dx, sy0 = oy + dy, s = 0;
+            if (sx0 < 0 || sy0 < 0 || sx0 + TRK_W > mw || sy0 + TRK_H > mh) { s = 1 << 29; }
+            else for (int j = 0; j < TRK_H; j++) { const uint8_t *a = f->ref + j * TRK_W, *b = cur + (sy0 + j) * mw + sx0; for (int i = 0; i < TRK_W; i++) s += abs(a[i] - b[i]); }
+            sad[dy + TRK_R][dx + TRK_R] = s;
+            if (s < best) { best = s; bdx = dx; bdy = dy; }
+        }
+        if (best < (1 << 29)) {
+            /* a parabola through the best match and its two neighbours gives the movement to a fraction of a step */
+            double sx = 0, sy = 0;
+            if (bdx > -TRK_R && bdx < TRK_R) {
+                double l = sad[bdy + TRK_R][bdx + TRK_R - 1], c = best, r = sad[bdy + TRK_R][bdx + TRK_R + 1], d = l - 2 * c + r;
+                if (d > 0 && l < (1 << 29) && r < (1 << 29)) sx = 0.5 * (l - r) / d;
+            }
+            if (bdy > -TRK_R && bdy < TRK_R) {
+                double l = sad[bdy + TRK_R - 1][bdx + TRK_R], c = best, r = sad[bdy + TRK_R + 1][bdx + TRK_R], d = l - 2 * c + r;
+                if (d > 0 && l < (1 << 29) && r < (1 << 29)) sy = 0.5 * (l - r) / d;
+            }
+            f->ax += 2 * (bdx + sx); f->ay += 2 * (bdy + sy);
+        }
+    }
+    /* The detector's smoothed position pulls the anchor back a little at every frame (errors cannot add up), and a face that
+       appears far from the anchor starts it afresh. */
+    double ex = f->hx - f->ax, ey = f->hy - f->ay;
+    if (ex * ex + ey * ey > 80.0 * 80.0) { f->ax = f->hx; f->ay = f->hy; f->haveRef = 0; }
+    else { f->ax += 0.02 * ex; f->ay += 0.02 * ey; }
+    f->wx = f->ax; f->wy = f->ay;
+    holdBox(f);
+    /* the reference for the next frame: the patch around the new anchor */
+    int rx = ((int)(f->ax + 0.5) - TRK_W) & ~1, ry = ((int)(f->ay + 0.5) - TRK_H) & ~1;
+    if (rx >= px && ry >= py && rx + 2 * TRK_W <= px + 2 * mw && ry + 2 * TRK_H <= py + 2 * mh) {
+        for (int j = 0; j < TRK_H; j++) memcpy(f->ref + j * TRK_W, cur + ((ry - py) / 2 + j) * mw + (rx - px) / 2, TRK_W);
+        f->refX = rx; f->refY = ry; f->haveRef = 1;
+    } else f->haveRef = 0;
+}
+
+void flat_window(const Flat *f, int *left, int *top, int *width, int *height) { *left = f->winL; *top = f->winT; *width = f->winW; *height = f->winH; }
 
 static inline uint8_t inFocus(const Flat *f, int sx, int sy) {
     for (int b = 0; b < f->boxes; b++) { const int *r = f->box + 4 * b; if (sx >= r[0] && sx < r[2] && sy >= r[1] && sy < r[3]) return 1; }
@@ -82,14 +182,33 @@ void flat_load_rgb(Flat *f, const uint8_t *rgb) {
 static int sampleStep(const Flat *f);
 
 /* Rotates, crops and averages a camera frame down into three planes of the output size; focus (may be NULL) gets the box mask. */
-static void loadYuv(const Flat *f, uint8_t *dy, uint8_t *du, uint8_t *dv, uint8_t *focus, const uint8_t *y, int yStride,
+static void loadYuv(Flat *f, uint8_t *dy, uint8_t *du, uint8_t *dv, uint8_t *focus, const uint8_t *y, int yStride,
                     const uint8_t *u, const uint8_t *v, int uvStride, int uvPixStride, int sw, int sh, int rot, int mirror) {
     int w = f->w, h = f->h;
     int rw = (rot == 90 || rot == 270) ? sh : sw, rh = (rot == 90 || rot == 270) ? sw : sh;
-    /* Centre crop of the upright picture with the output's shape. */
+    /* Crop of the upright picture with the output's shape: the middle, or when the face is held still a smaller window that
+       follows the face (flat_set_hold) and never leaves the frame. */
     int cw = rw, ch = (int)((long long)rw * h / w);
     if (ch > rh) { ch = rh; cw = (int)((long long)rh * w / h); }
+    cw = (int)((long long)cw * 100 / f->zoom); ch = (int)((long long)ch * 100 / f->zoom);
+    if (cw < w) cw = w; /* never magnify the camera's own pixels: fewer than one per output pixel */
+    if (ch < h) ch = h;
     int x0 = (rw - cw) / 2, y0 = (rh - ch) / 2;
+    if (f->zoom > 100 && f->hx >= 0) {
+        /* the face centre, from camera-frame pixels to the upright picture's (the inverse of the rotation and mirror below) */
+        double sx = f->wx, sy = f->wy, ux, uy;
+        switch (rot) {
+            case 90: ux = sh - 1 - sy; uy = sx; break;
+            case 180: ux = sw - 1 - sx; uy = sh - 1 - sy; break;
+            case 270: ux = sy; uy = sw - 1 - sx; break;
+            default: ux = sx; uy = sy;
+        }
+        if (mirror) ux = rw - 1 - ux;
+        x0 = (int)(ux - cw / 2.0 + 0.5); y0 = (int)(uy - ch / 2.0 + 0.5);
+        x0 = x0 < 0 ? 0 : x0 > rw - cw ? rw - cw : x0; y0 = y0 < 0 ? 0 : y0 > rh - ch ? rh - ch : y0;
+    }
+    f->winL = (int)((long long)x0 * 1000 / rw); f->winT = (int)((long long)y0 * 1000 / rh);
+    f->winW = (int)((long long)cw * 1000 / rw); f->winH = (int)((long long)ch * 1000 / rh);
     int taps = cw / w; if (taps < 1) taps = 1; if (taps > 4) taps = 4;
     for (int oy = 0; oy < h; oy++) for (int ox = 0; ox < w; ox++) {
         int sy_ = 0, su = 0, sv = 0, fx = 0, fy = 0;
@@ -321,13 +440,13 @@ static void majority(Flat *f, const uint8_t *src, uint8_t *dst) {
     }
 }
 
-/* Fills merge[level]: each colour's stand-in when only a half (level 0) or a quarter (level 1) of the colours may be
+/* Fills merge[level]: each colour's stand-in when only a half (level 0), a quarter (level 1) or one (level 2) of the colours may be
    used. The two closest colours are merged, again and again, until few enough are left. */
 static void buildMerge(Flat *f) {
     int k = f->k, rep[FLAT_MAX_COLORS], left = k;
     for (int c = 0; c < k; c++) rep[c] = c;
-    for (int level = 0; level < 2; level++) {
-        int target = k >> (level + 1); if (target < 2) target = 2;
+    for (int level = 0; level < 3; level++) {
+        int target = level == 2 ? 1 : k >> (level + 1); if (target < 2 && level < 2) target = 2;
         while (left > target) {
             int ba = 0, bb = 1, bd = 1 << 30;
             for (int a = 0; a < k; a++) if (rep[a] == a) for (int b = a + 1; b < k; b++) if (rep[b] == b) {
@@ -337,6 +456,9 @@ static void buildMerge(Flat *f) {
             for (int c = 0; c < k; c++) if (rep[c] == bb) rep[c] = ba;
             left--;
         }
+        /* One colour: the middle of the palette by brightness (the palette is sorted by it when built), which is the grey of a wall, not
+           the darkest colour a chain of merges would leave. Where it matches the wall inside the focus box, the box's edge disappears. */
+        if (level == 2) for (int c = 0; c < k; c++) rep[c] = k / 2;
         for (int c = 0; c < k; c++) f->merge[level][c] = (uint8_t)rep[c];
     }
 }

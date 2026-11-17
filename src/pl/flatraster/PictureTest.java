@@ -52,6 +52,18 @@ final class PictureTest {
                 else { Flat.process(h, y, SRC_W, u, v, SRC_W / 2, 1, SRC_W, SRC_H, 0, false, 2, 12, 1, 0, i420, argb); join += (System.nanoTime() - a) / 1e6; info = Flat.gatherInfo(h); }
             }
         }
+        // Holding the face still: following the face from the picture costs this much for every camera frame.
+        double track = 0; int tn = 0;
+        for (int k = 0; k < 24 && !log.cancelled(); k++) {
+            byte[] f = scene(70 + k, noise);
+            y.clear(); y.put(f, 0, SRC_W * SRC_H); y.rewind();
+            long a = System.nanoTime();
+            Flat.setHold(h, 320, 230, 160, 210, 125, 500, 0, 400);
+            Flat.track(h, y, SRC_W, SRC_W, SRC_H);
+            if (k > 0) { track += (System.nanoTime() - a) / 1e6; tn++; }
+        }
+        Flat.setHold(h, -1, 0, 0, 0, 100, 1000, 0, -1); // back to the whole frame
+        log.line(SelfTest.f("Holding the face still: %.2f ms to follow the face in one camera frame (done for every frame the camera makes while it is on).", track / Math.max(1, tn)));
         int f = Flat.viewFactor(OUT_W, OUT_H); int[] big = new int[OUT_W * f * OUT_H * f];
         long a = System.nanoTime();
         for (int r = 0; r < rounds; r++) Flat.upscale(argb, OUT_W, OUT_H, f, 0, big);

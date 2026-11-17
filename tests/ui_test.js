@@ -67,10 +67,11 @@ const { chromium } = require('playwright');
     });
     await p.goto('file://' + process.argv[2]);
     await p.waitForTimeout(700);
-    await p.selectOption('#join', '0'); await p.selectOption('#view', '0');
+    await p.selectOption('#join', '0'); await p.selectOption('#view', '0'); await p.selectOption('#fhold', '1'); await p.selectOption('#fbox', '150');
     const r = await p.evaluate(() => ({ first: JSON.parse(window.calls.length ? window.calls[0] : '{}'), last: JSON.parse(window.calls[window.calls.length - 1] || '{}'),
       rate: document.getElementById('rate').textContent, round: document.getElementById('round').options[1].textContent }));
-    console.log('picture', JSON.stringify({ rate: r.rate, round: r.round, join: r.last.join, view: r.last.view }));
+    console.log('picture', JSON.stringify({ rate: r.rate, round: r.round, join: r.last.join, view: r.last.view, hold: r.last.fhold, fbox: r.last.fbox }));
+    if (r.last.fhold !== true || r.last.fbox !== 150) errors.push('picture: Hold face still and Face box did not reach the app: ' + JSON.stringify({ hold: r.last.fhold, fbox: r.last.fbox }));
     if (r.last.join !== false || r.last.view !== false) errors.push('picture: switching Camera frames and Picture on screen off did not reach the app');
     if (!/7 camera frames joined/.test(r.rate) || !/sharper earlier/.test(r.rate)) errors.push('picture: the status line does not say what was joined: ' + r.rate);
     if (!/not at this size/.test(r.round)) errors.push('picture: Borders does not say that rounding is left out at 160 x 120');
@@ -85,6 +86,7 @@ const { chromium } = require('playwright');
     await p.selectOption('#fps', '1');
     const c = await p.evaluate(() => JSON.parse(window.calls[window.calls.length - 1] || '{}'));
     if (c.join !== true || c.view !== true) errors.push('picture: Camera frames and Picture on screen are not on by default: ' + JSON.stringify({ join: c.join, view: c.view }));
+    if (c.fhold !== false || c.fbox !== 400) errors.push('picture: Hold face still is not off, or Face box is not Head, by default: ' + JSON.stringify({ hold: c.fhold, fbox: c.fbox }));
     await p.close();
   }
   // Self-test panel: the button opens it, its buttons call the bridge, the report shows, SHARE waits for a finished report.

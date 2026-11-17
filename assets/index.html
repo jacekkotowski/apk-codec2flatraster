@@ -72,6 +72,8 @@ button.danger{background:var(--rec);border-color:var(--rec);color:#fff}
    <label>Picture on screen<select id="view"><option value="1">Smooth</option><option value="0">Blocks</option></select></label>
    <label>Exposure and colour<select id="lock"><option value="0">Follow the light</option><option value="1">Lock while recording</option></select></label>
    <label>Faces<select id="focus"><option value="0">No special treatment</option><option value="1">Rest in half the colours</option><option value="2">Rest in a quarter of the colours</option></select></label>
+   <label>Hold face still<select id="fhold"><option value="0">Off</option><option value="1">Follow the face, rest one flat colour</option></select></label>
+   <label>Face box<select id="fbox"><option value="150">Face only</option><option value="400">Head</option><option value="750">Head and shoulders</option></select></label>
    <label>Repeating movement<select id="ignore"><option value="0">Record</option><option value="1">Ignore a little</option><option value="2">Ignore</option><option value="3">Ignore a lot</option></select></label>
    <label>Still pictures<select id="still"><option value="0">Record</option><option value="1">Skip if nothing moves</option><option value="2">Skip small changes</option><option value="3">Skip most changes</option></select></label>
    <label>Video bitrate<select id="kbps"><option value="2">2 kbps</option><option value="3">3 kbps</option><option value="5">5 kbps</option><option value="8">8 kbps</option><option value="12">12 kbps</option><option value="20">20 kbps</option><option value="35">35 kbps</option><option value="50">50 kbps</option><option value="100">100 kbps</option></select></label>
@@ -103,8 +105,8 @@ button.danger{background:var(--rec);border-color:var(--rec);color:#fff}
 // Outside the app (a desktop browser) a stand-in bridge keeps the page usable for layout checks.
 var A = window.Android || {status:function(){return '{"camera":true,"avail":"0,1"}'},list:function(){return '[]'},voiceModes:function(){return '["best","balanced","small","smallest"]'},config:function(){},newPalette:function(){},startRec:function(){},stopRec:function(){},play:function(){},stopPlay:function(){},mp4:function(){},remove:function(){},rename:function(){return true},share:function(){}};
 var $ = function(id){return document.getElementById(id)};
-var ids = ['fps','size','colors','smooth','pal','thr','clean','round','join','view','lock','focus','ignore','still','kbps','key','skip','codec','voice','front','mic','src','rl','dn','st','rm','cp','ng','cl','tb','sens','hold'];
-var defaults = {fps:'2',size:'2',colors:'8',smooth:'2',pal:'0',thr:'16',clean:'1',round:'1',join:'1',view:'1',lock:'0',focus:'0',ignore:'0',still:'0',kbps:'5',key:'10',skip:'0',codec:'-1',voice:'small',front:'0',
+var ids = ['fps','size','colors','smooth','pal','thr','clean','round','join','view','lock','focus','fhold','fbox','ignore','still','kbps','key','skip','codec','voice','front','mic','src','rl','dn','st','rm','cp','ng','cl','tb','sens','hold'];
+var defaults = {fps:'2',size:'2',colors:'8',smooth:'2',pal:'0',thr:'16',clean:'1',round:'1',join:'1',view:'1',lock:'0',focus:'0',fhold:'0',fbox:'400',ignore:'0',still:'0',kbps:'5',key:'10',skip:'0',codec:'-1',voice:'small',front:'0',
   // Sound: Codec2 Recorder's defaults
   mic:'0',src:'6',rl:'auto',dn:'1',st:'0.18',rm:'180',cp:'3',ng:'12',cl:'6',tb:'1',sens:'5',hold:'1'};
 var rec = false, listKey = '', msgUntil = 0, renaming = null, renameText = null, confirmDel = null;
@@ -123,7 +125,7 @@ ids.forEach(function(id){ $(id).value = saved[id] != null ? saved[id] : defaults
 function push(){
   var s = {}; ids.forEach(function(id){ s[id] = $(id).value });
   try { localStorage.setItem('set', JSON.stringify(s)) } catch (e) {}
-  A.config(JSON.stringify({fps:+s.fps,size:+s.size,colors:+s.colors,smooth:+s.smooth,pal:+s.pal,thr:+s.thr,clean:+s.clean,round:+s.round,join:s.join==='1',view:s.view==='1',lock:s.lock==='1',focus:+s.focus,ignore:+s.ignore,still:+s.still,kbps:+s.kbps,key:+s.key,skip:s.skip==='1',codec:+s.codec,voice:s.voice,front:s.front==='1',
+  A.config(JSON.stringify({fps:+s.fps,size:+s.size,colors:+s.colors,smooth:+s.smooth,pal:+s.pal,thr:+s.thr,clean:+s.clean,round:+s.round,join:s.join==='1',view:s.view==='1',lock:s.lock==='1',focus:+s.focus,fhold:s.fhold==='1',fbox:+s.fbox,ignore:+s.ignore,still:+s.still,kbps:+s.kbps,key:+s.key,skip:s.skip==='1',codec:+s.codec,voice:s.voice,front:s.front==='1',
     mic:+s.mic,src:+s.src,auto:s.rl==='auto',rl:s.rl==='auto'?12:+s.rl,dn:s.dn==='1',st:+s.st,rm:+s.rm,cp:+s.cp,ng:+s.ng,cl:+s.cl,tb:+s.tb,sens:+s.sens,hold:+s.hold}));
   $('vt').style.left = (20 - 1.8 * +s.sens) / 24 * 100 + '%'; $('vmrow').hidden = s.skip !== '1'; $('sens').disabled = $('hold').disabled = s.skip !== '1';
 }
@@ -152,7 +154,7 @@ function tick(){
   $('recb').className = rec ? 'on' : ''; $('recb').textContent = rec ? 'STOP' : 'REC';
   $('recb').setAttribute('aria-label', rec ? 'Stop recording' : 'Record');
   $('recb').disabled = !rec && !s.camera;
-  ['size','colors','kbps','key','skip','lock','codec','voice','front','fps','mic','src','dn','st','rm','cp','ng','cl','tb'].forEach(function(id){ $(id).disabled = rec });
+  ['size','colors','kbps','key','skip','lock','codec','voice','front','fps','mic','src','dn','st','rm','cp','ng','cl','tb','fhold','fbox'].forEach(function(id){ $(id).disabled = rec });
   $('samp').disabled = !!s.sampling; $('samp').textContent = s.sampling ? 'Sampling...' : 'Sample noise'; $('nclr').hidden = !s.hasNoise || !!s.sampling;
   $('nst').textContent = s.sampling ? 'Stay silent for 2 s' : s.hasNoise ? 'Sample saved, adapting' : 'Auto, adapting';
   $('vm').style.width = (rec ? Math.round(100 * (s.vad || 0)) : 0) + '%';
@@ -171,7 +173,8 @@ function tick(){
     $('rate').textContent = s.exporting ? 'Saving MP4...' : s.play ? 'Playing ' + s.play : s.camera ? 'Ready, ' + s.w + ' x ' + s.h + joined(s) : 'Waiting for the camera';
     $('lvl').style.width = '0';
   }
-  if (s.focus && s.camera) $('enc').textContent = (rec && s.encoder ? s.encoder + '. ' : '') + (!s.faceOk ? 'This camera does not report faces: the whole picture gets fewer colours' : s.faces ? s.faces + (s.faces > 1 ? ' faces' : ' face') + ' in full colours' : 'No face seen: the whole picture gets fewer colours');
+  if (s.fhold && s.camera) $('enc').textContent = (rec && s.encoder ? s.encoder + '. ' : '') + (!s.faceOk ? 'This camera does not report faces: there is no face to hold' : s.holdSeen ? (s.faces ? 'Holding the face still' : 'No face seen: holding the last place') : 'Waiting for a face');
+  else if (s.focus && s.camera) $('enc').textContent = (rec && s.encoder ? s.encoder + '. ' : '') + (!s.faceOk ? 'This camera does not report faces: the whole picture gets fewer colours' : s.faces ? s.faces + (s.faces > 1 ? ' faces' : ' face') + ' in full colours' : 'No face seen: the whole picture gets fewer colours');
   else if (!rec) $('enc').textContent = '';
   draw(s);
 }

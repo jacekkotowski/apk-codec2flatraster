@@ -1,8 +1,18 @@
 # FlatRaster plan
 
-Last updated: 2026-11-16 (0.16: camera frames joined, smooth enlarging; first part of stage 6b)
+Last updated: 2026-11-17 (0.17: hold the face still, flat background; second part of stage 6b)
 
 ## Start here
+
+- **0.17 (2026-11-17) holds the face still and flattens the background** (stage 6b, ROADMAP.md 7.3 items 2 and 4, asked for by the owner). Built and tested on a computer; **nothing in it has run on a phone**; APK `dist/FlatRaster-0.17.apk`, installs over 0.16. The plan, the measurement and the open work are in "0.17: hold the face still" below. In short: new settings **Hold face still** (default Off) and **Face box** (default Head). On a made-up talking head, with a face detector that trembles by 3 pixels, 30 s needs **27 to 43% fewer bytes** with the face-only box and 8 to 34% fewer with the head box, and 83% fewer changed pixels per picture with the face-only box, with the mouth still followable (r 0.97) and the eyes better visible.
+- **What the owner should look at on the phone** (in this order; the phone's face detection is needed, so use the front or back camera that says "Waiting for a face" then "Holding the face still"):
+  1. Hold face still On, Face box Head, then Face only: does the face stay put? Is the flat grey around it acceptable? Does it follow when you move your head, and recover when you turn away and come back?
+  2. Record 30 s of talking with it On and with it Off, same place: compare file sizes (the plan expects 25 to 45% smaller) and watch both. Does the mouth read as well?
+  3. A phone held in the hand, then standing still.
+  4. RUN SELF-TEST and paste: new line "Holding the face still: ... ms to follow the face in one camera frame". On a computer it is 0.04 ms.
+- **The Faces setting of 0.15 (rest in half or a quarter of the colours) cost bytes in this test**: +26% exact, +11% x264, +11% svt-av1 against doing nothing, because its box follows the detector's trembling and jumps on a 32-pixel grid, and every jump moves a long border. Hold face still makes its own box that follows the window, which does not jump. **Recommendation: leave Faces at "No special treatment", and use Hold face still instead.** Not changed in the app without the phone.
+
+- (0.16, earlier the same day:)
 
 - **0.16 (2026-11-16) is the first part of stage 6b of `ROADMAP.md`: a better picture from the same bytes, and the case for a smaller picture.** Built and tested on a computer; **nothing in it has run on a phone.** APK: `dist/FlatRaster-0.16.apk`, installs over 0.15.2. What is in it, with the figures, is in "0.16" under "What was measured" below. In short:
   1. **Camera frames: Join all** (new setting, on). The camera makes 15 to 30 frames a second and the app kept one in every 3 to 60. Now the last six between two pictures are joined into the picture: it starts from the sharpest and averages the rest in where they agree. On the self-test scene: borders 3 to 12% shorter, 1 to 16% fewer bytes depending on noise; with a shaken hand 42% fewer bytes and 20% shorter borders.
@@ -21,7 +31,7 @@ Last updated: 2026-11-16 (0.16: camera frames joined, smooth enlarging; first pa
 
 - **Review and big plan for both apps (2026-11-15): `ROADMAP.md` in `apk-codec2-recorder`.** The owner's decisions are in its section 2 (D2 to D10 as recommended; **D1 was decided 2026-11-16: one repository**). For FlatRaster it proposes: one repository with Codec2 Recorder and a shared core; free legibility steps (sharpest picture, averaging, face-first colours, smooth upscaling); face crop and a sketch mode; measuring a purpose-built coder for flat pictures against AV1; a "postcard" (one picture and a voice message) as the first radio product. It supersedes `PLAN-radio.md` if accepted.
 - **Stage 0 of that roadmap is built here as 0.15.2 (2026-11-15, Sonnet 5.5): a Self-test panel** (button "Self-test" under the controls). RUN SELF-TEST (about a minute) times the voice chain and DRED coding and playing on the phone, times the posterize filter on a made-up camera scene, and for AV1, HEVC and H.264 lists the phone's encoders (software or hardware, lowest bit rate) and reports what the app's own `VideoEncoder` really produces from that scene at 5 and 2 kbit/s asked: bytes, real kbit/s, full-picture size, time. SAVE TEST CLIP records 30 s of the microphone with no processing by the app (Download/FlatRaster). COPY REPORT copies it and SHARE REPORT sends it; the report is also kept inside the app. Code: `PictureTest.java` (filter, no Android), `VideoTest.java` (encoders), `SelfTestRun.java` (phone side), and `src/pl/dyktafon/SelfTest.java`, which is copied from Codec2 Recorder's file of the same name (identical except `public`; stage 1 merges them). Tested on a computer: `bash tests/selftest/run.sh` (also in `tests/run.sh`), and the page panel in `tests/ui_test.js`. **Not tested on a phone**: `VideoTest` and `SelfTestRun` use Android's encoders and microphone. The scene is synthetic, so real camera noise will cost more bytes than the report shows. **First phone report, 2026-11-16 (Xiaomi 2602BPC18G, Android 16, arm64, 0.15.2): everything passed.** Voice speed as in the recorder (DRED coding 220x, playing 26x, recording 65x real time). The posterize filter takes 21 ms a picture (47 a second possible; the app uses 2). Encoders on this phone: H.264 and HEVC in software and in the camera chip (MediaTek), AV1 in software only; all accept 320x240 and bit rates down to almost 0. The app tries software first, so on this phone it uses AV1 software, and the chip encoders were not tested. **None of them keeps to a low bit rate.** On the made-up scene (30 s, 2 pictures a second, 3 full pictures), asked 5 kbit/s: H.264 3.77, HEVC 4.85, AV1 4.75 kbit/s really; asked 2 kbit/s: H.264 3.18, HEVC 3.93, AV1 3.97, so about double the ask. Full pictures are 0.9 to 1.5 kB each. H.264 made the fewest bytes here (11.9 to 14.1 kB per 30 s), AV1 the smallest full pictures but larger delta pictures. This confirms the estimate in ROADMAP.md 6 and 7.1 that 30 s of video is about 12 to 18 kB, too big for a radio link as it is, and supports measuring a purpose-built coder (stage 6a). Caveats: the scene is synthetic (real camera noise will cost more), one scene only, and the choice of default codec should not be changed on this alone. The report file is `selftest_2026-11-16_01-20-34.txt` on the phone. It also answers which encoder the phone gives and at what real bit rate (ROADMAP.md 7.1).
-- Current version **0.16** on `main`, APK in `dist/` (0.15.2 was 0.15 plus the self-test). Since 0.13 the voice is DRED (Codec 2 is gone; `.frv` files from 0.12 or older don't play), 0.14 put the voice in step with the picture, 0.15 gave it the sound settings of Codec2 Recorder. None of 0.2 to 0.16 has been tried on a phone, apart from the self-test of 0.15.2.
+- Current version **0.17** on `main`, APK in `dist/` (0.16 joined camera frames and smoothed the screen picture; 0.15.2 was 0.15 plus the self-test). Since 0.13 the voice is DRED (Codec 2 is gone; `.frv` files from 0.12 or older don't play), 0.14 put the voice in step with the picture, 0.15 gave it the sound settings of Codec2 Recorder. None of 0.2 to 0.17 has been tried on a phone, apart from the self-test of 0.15.2.
 - Next real step: **the owner's phone test of 0.15**: recording with voice, playback in step, SAVE MP4 (its sound is now AAC at 16 kHz, untried on the phone), the sound settings, a Bluetooth microphone.
 - Older note, superseded by `ROADMAP.md` (its stage 6d takes the transport from the shared core; the order of work is the roadmap's): sending `.frv` over radio. Take the modem library and file transport from Codec2 Recorder (`third_party/codec2-1.2`, `fdvflags.sh`, `jni/fdvjni.c`, `Fountain`, `RadioLink`); see `PLAN-radio.md` and its 2026-11-14 update. Codec2 Recorder 2.8 also has RADE voice messages (`libvoice.so`, `third_party/rade_c`, `radeflags.sh`); whether FlatRaster wants them is the owner's call.
 - Before stating what exists, fetch and list all branches. Keys: attach `apk-signing-keys`, folder `apk-flatraster`. Build: the Android SDK from Codec2 Recorder's `setup.sh` works here too (`source env.sh` there, then `bash build.sh` here). Run `bash tests/run.sh` before delivering (needs numpy, opencv-python-headless, Playwright).
@@ -44,6 +54,7 @@ Last updated: 2026-11-16 (0.16: camera frames joined, smooth enlarging; first pa
 | Voice: DRED in place of Codec 2 (0.13) | Built and tested on a computer ([PLAN-dred.md](PLAN-dred.md)); not run on a phone |
 | Sound settings as in Codec2 Recorder, Bluetooth and USB microphones, noise sample (0.15) | Page tested against a stub; recording path tested on a computer; not run on a phone |
 | Camera frames joined between pictures; smooth enlarging on the screen; no border rounding at 160 x 120 (0.16) | Filter and enlarger tested on a computer; the Android side built, not run on a phone |
+| Hold the face still, flat background, Face box (0.17) | Tested on a computer (`tests/hold_test.py`); the Android side built, not run on a phone |
 | Sending over a narrow link | Not started |
 
 ## What was measured (synthetic clips, AV1 at one quality setting, 320x240)
@@ -62,6 +73,52 @@ Last updated: 2026-11-16 (0.16: camera frames joined, smooth enlarging; first pa
 - 0.11, the owner's exact idea: a brand-new palette every picture, each new colour shown as the nearest colour of the previous picture if within a threshold. Borders 0.92 to 0.99x ideal. Stream at threshold 16 (and 28): still 1.91 (1.91), drift 3.71 (3.91), soft moving 3.61 (3.45), light change 3.60 (3.51) kbps, against 1.45, 3.30, 3.03, 3.33 with locked colours. A fresh palette lands slightly differently on each noisy picture, which moves borders a little every time.
 
 None of this is measured on real footage yet. Next measurement: the same tests on clips from the phone.
+
+## 0.17: hold the face still (2026-11-17)
+
+**The plan** (from the owner's question: can the face box be smaller, and how else can the picture be made cheaper and stay legible). From stage 6a: bytes go to borders that move; a still area costs almost nothing. In a talking head the thing that moves most is the head's sway, and every pixel it shifts moves the head's outline and the whole background behind it. So: (2) keep the face still in the picture by moving the crop window with the face, and (3) make everything outside a box around the face one flat colour so the moving background costs nothing. Each alone is worse than doing nothing (below); together they are the gain.
+
+Steps and what came of them:
+
+1. **A smaller box.** Done: the box is a setting, Face box: Face only (the face rectangle widened by 15% of its size on every side), Head (40%), Head and shoulders (75%, what 0.15 used).
+2. **Measure on a computer before building** (`tests/hold_test.py`, `tests/hold_test.c`). Done, below.
+3. **The face detector trembles, so it cannot be followed directly.** Found by measurement: with the detector's centre as it is (3 pixels of noise, which is a guess for a phone), holding the face from it gives none of the gain (13676 bytes against 13746 for doing nothing, exact coder). Following the face by looking at the picture does: `flat_track` matches the brightness inside the face rectangle against the previous camera frame, to a fraction of a pixel, and the detector's smoothed position pulls the window back slowly so errors cannot add up. Done.
+4. **The Android side.** Done: `Flat.setHold`, `Flat.track`, the face rectangle from `CameraSource` (unwidened, unsnapped), settings Hold face still (Off) and Face box (Head). Waiting for a face: until the first face is seen the picture is the whole frame, as before.
+5. **Phone test** (the list at the top). Open.
+6. **After the phone test, depending on it:** make Hold the default; remove the Faces setting; tune the 1.25 zoom, the pull back to the detector (0.02 a frame) and the smoothing (1/2) on real faces; check what happens when the face turns away, nods, or is covered.
+7. **Ideas not done** (ROADMAP.md 7.3): store a picture only when the face region changed (the "Still pictures" setting looks at the whole picture); a grey palette; local contrast in the face; sketch mode.
+
+The scene: a made-up talking head (640x480 camera frames at 16 a second, 2 pictures a second kept, 60 pictures = 30 s, 8 colours, 320x240 pictures) in front of a wall with a gradient, a bookshelf of stripes and a window. The head sways by 40 pixels over 4 s with a quicker wobble, the mouth opens and closes at random-looking speed, eyes and mouth are only a little darker than the skin. The face detector's rectangle trembles (centre 3 pixels, size 5%). "Eyes": share of eye pixels shown in another colour than the skin. "Mouth r": correlation between the true mouth opening and the non-skin pixels in the mouth area. "Face sd": how far the face wanders in the picture.
+
+| Option | Exact coder | x264 | svt-av1 | Pixels changed per picture | Eyes | Mouth r | Face sd |
+|---|---|---|---|---|---|---|---|
+| 0.16, nothing special | 13746 | 9137 | 6461 | 3356 | 75% | 0.98 | 14.9 |
+| Faces: rest in half the colours, box 0.75 (0.15) | 17296 | 10116 | 7200 | 6708 | 75% | 0.98 | 14.9 |
+| Zoom 1.25, window in the middle | 14673 | 9480 | 7166 | 4595 | 79% | 0.96 | 18.6 |
+| Hold from the detector, no flat background | 20601 | 12954 | 9031 | 9330 | 80% | 0.95 | 3.1 |
+| Hold from the detector, smoothed, flat background, head | 13912 | 9779 | 6604 | 2709 | 82% | 0.97 | 2.8 |
+| Hold from the image, no flat background | 15167 | 11815 | 8254 | 7807 | 84% | 0.97 | 0.7 |
+| Hold from the image, flat background, head and shoulders | 13253 | 11351 | 7807 | 4734 | 84% | 0.97 | 0.7 |
+| **Hold from the image, flat background, head (the default)** | **9226** | **8539** | **5844** | **1825** | **84%** | **0.97** | **0.7** |
+| **Hold from the image, flat background, face only** | **7095** | **6073** | **4574** | **429** | **84%** | **0.97** | **0.7** |
+| Hold from the image, quarter of the colours, head | 10083 | 9767 | 6089 | 3163 | 84% | 0.97 | 0.7 |
+| Hold from the image, flat background, head, zoom 1.10 | 13596 | 10420 | 6551 | 3197 | 79% | 0.96 | 3.6 |
+| Hold from the image, flat background, head, zoom 1.50 | 9444 | 8215 | 5919 | 1338 | 86% | 0.76 | 0.9 |
+| Hold from the image, flat background, head, no border rounding | 10263 | 8302 | 5829 | 1845 | 90% | 0.99 | 0.7 |
+
+Against 0.16 (bytes for 30 s): head box 33% fewer with the exact coder, 7% with x264, 10% with svt-av1; face-only box 48%, 34% and 29%. Pixels changed per picture: 46% and 87% fewer.
+
+What this says:
+
+- **Each half alone loses.** Holding the face without a flat background costs 10 to 40% more (the whole background moves in the picture instead); a flat background without holding costs more too (the box jumps with the detector). They work together.
+- **The detector is the weak point.** With a perfect detector (no tremble) the same hold gives 8660 exact bytes; with 3 pixels of tremble and following the detector, 13912; with the image-based follower, 9226. At 6 pixels of tremble the image-based follower still gives 9652.
+- **Video encoders gain less than the exact coder** (7 to 10% against 33% for the head box), because they already move blocks of the previous picture to follow a moving head; the exact coder of stage 6a does not. So this feature makes the stage 6a prototype competitive with x264 on this scene (9226 against 8539) but not with svt-av1 (5844). Stage 6a's rule (half the bytes on delta pictures) is still not met; D8 is unchanged.
+- **Zoom 1.25 is the smallest that works**: the window has to follow a 50-pixel sway. At 1.10 the face escapes the window (face sd 3.6) and the gain is gone. At 1.50 the gain is similar but the mouth is no longer followable (r 0.76, not understood: not looked into).
+- **Border rounding costs the held face bytes** (8 to 11%) and buys visibility (eyes 90% against 84%). Not changed: that is for the owner's eyes.
+- The flat colour is the middle one of the palette by brightness, the grey of a wall; it hides the edge of the box where it matches the wall.
+- Cost: 0.04 ms for one camera frame on a computer (the picture comparison is a plain loop the compiler vectorises); the self-test reports it on the phone.
+
+Limits, plainly: one made-up scene; a made-up detector tremble (3 pixels is a guess, no phone has been measured); the face does not turn, nod, get covered or leave the picture; the image follower can be fooled by a mouth that fills the match area, glasses, a hand across the face (the pull back to the detector limits the damage to a few seconds, but it is not tested); the faces are all one head; real camera noise is partly removed by the camera chip. Everything here is a reason for the phone test, not a reason to doubt the direction.
 
 ## 0.16: camera frames joined, smooth enlarging (2026-11-16)
 

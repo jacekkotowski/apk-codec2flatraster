@@ -65,6 +65,10 @@ public class MainActivity extends Activity implements CameraSource.Listener {
     private volatile boolean front, portrait = true, skipSilence, lockLight;
     /** Join the camera's frames between two pictures into the picture (less noise, the sharpest frame); show the picture enlarged smoothly. */
     private volatile boolean joinFrames = true, smoothView = true;
+    /** Hold the face still (0.17): the picture follows the face and the rest is one flat colour. holdBox: how far beyond the face the box reaches, in thousandths of its size. */
+    private volatile boolean holdFace;
+    private volatile int holdBox = 400;
+    private boolean holdSeen; // a face has been seen since holding was switched on; guarded by lock
     private volatile int joinInfo;
     private long lastCamNs; // when the camera last gave any frame; guarded by lock
     private final java.util.concurrent.ConcurrentLinkedQueue<int[]> bigPool = new java.util.concurrent.ConcurrentLinkedQueue<>();
@@ -200,8 +204,19 @@ public class MainActivity extends Activity implements CameraSource.Listener {
      *  (measured, tests/smooth_test.py and PLAN.md: the face is 5.3% off the truth with it, 3.3% without), so it is left out there. */
     static int roundFor(int w, int h, int level) { return Math.min(w, h) < 150 ? 0 : level; }
 
+    /** The window that follows the face, for this camera frame (flat_set_hold, flat_track). Holding waits for the first face: until then
+     *  the picture is the whole frame, as before. Called with the lock held, before the frame is loaded or gathered. */
+    private void holdStep(Image.Plane yPlane, int w, int h, int[] rect) {
+        if (!holdFace) { Flat.setHold(flat, -1, 0, 0, 0, 100, 1000, 0, -1); holdSeen = false; return; }
+        if (rect != null) holdSeen = true;
+        if (!holdSeen) { Flat.setHold(flat, -1, 0, 0, 0, 100, 1000, 0, -1); return; }
+        if (rect != null) Flat.setHold(flat, rect[0], rect[1], rect[2], rect[3], 125, 500, 0, holdBox);
+        else Flat.setHold(flat, -1, 0, 0, 0, 125, 500, 0, holdBox);
+        Flat.track(flat, yPlane.getBuffer(), yPlane.getRowStride(), w, h);
+    }
+
     /** Camera thread: a frame between two pictures. The filter keeps the last six and joins them into the next picture. */
-    @Override public void extra(Image img, int rotation, boolean mirror, long timeNs) {
+    @Override public void extra(Image img, int rotation, boolean mirror, long timeNs, int[] faceRect) {
         if (player != null && !recording) return;
         synchronized (lock) {
             if (flat == 0 || !joinFrames) return;
@@ -210,13 +225,14 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             if (timeNs - lastCamNs > 1_000_000_000L) Flat.clearGathered(flat); // the camera paused: what was gathered is stale
             lastCamNs = timeNs;
             Image.Plane[] p = img.getPlanes();
+            holdStep(p[0], img.getWidth(), img.getHeight(), faceRect);
             Flat.gather(flat, p[0].getBuffer(), p[0].getRowStride(), p[1].getBuffer(), p[2].getBuffer(), p[1].getRowStride(), p[1].getPixelStride(),
                     img.getWidth(), img.getHeight(), rotation, mirror);
         }
     }
 
     /** Camera thread: posterize the frame, show it, and encode it while recording. */
-    @Override public void frame(Image img, int rotation, boolean mirror, long timeNs, int[] faces) {
+    @Override public void frame(Image img, int rotation, boolean mirror, long timeNs, int[] faces, int[] faceRect) {
         if (player != null && !recording) return; // the picture area is showing a recording
         final int[] copy; final int w, h; String fail = null;
         synchronized (lock) {
@@ -233,13 +249,17 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             if (palSec > 0 && lastPalNs != 0 && timeNs - lastPalNs >= palSec * 1_000_000_000L) Flat.reset(flat);
             // Faces: full colours inside the boxes, fewer colours everywhere else.
             int focus = focusLvl, nFaces = focus > 0 && faces != null ? faces.length / 4 : 0;
-            Flat.setFocus(flat, faces, nFaces, focus);
+            Image.Plane[] p = img.getPlanes();
+            if (holdFace) { // the box is made in the filter and follows the window; everything outside it is one flat colour
+                Flat.setFocus(flat, faces, 0, holdSeen || faceRect != null ? 3 : 0);
+                holdStep(p[0], img.getWidth(), img.getHeight(), faceRect);
+                nFaces = faceRect != null ? 1 : 0;
+            } else { Flat.setFocus(flat, faces, nFaces, focus); holdStep(p[0], img.getWidth(), img.getHeight(), faceRect); }
             Flat.setRound(flat, roundFor(fw, fh, roundLvl));
             if (!joinFrames || timeNs - lastCamNs > 1_000_000_000L) Flat.clearGathered(flat);
             lastCamNs = timeNs;
             Flat.setTrack(flat, palSec < 0 ? trackThr : 0, 2); // palSec -1: a new palette every picture, matched to the previous colours
             faceCount = nFaces;
-            Image.Plane[] p = img.getPlanes();
             int r = Flat.process(flat, p[0].getBuffer(), p[0].getRowStride(), p[1].getBuffer(), p[2].getBuffer(), p[1].getRowStride(), p[1].getPixelStride(),
                     img.getWidth(), img.getHeight(), rotation, mirror, smooth, HOLD[cleanLvl - 1], cleanLvl, ignoreLvl, i420, argb);
             if (r < 0) return;
@@ -429,6 +449,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
                 if (w != availW || h != availH) { avail = VideoEncoder.available(w, h); availW = w; availH = h; }
                 o.put("avail", avail).put("w", w).put("h", h);
                 CameraSource cam = camera;
+                o.put("fhold", holdFace).put("holdSeen", holdSeen);
                 o.put("focus", focusLvl > 0).put("faces", faceCount).put("faceOk", cam != null && cam.faceSupported);
                 int ji = joinInfo;
                 o.put("joined", joinFrames ? ji & 255 : 0).put("joinBase", (ji >> 8) & 255).put("joinLimit", ji >> 16).put("roundOff", roundLvl > 0 && roundFor(w, h, roundLvl) == 0);
@@ -496,6 +517,9 @@ public class MainActivity extends Activity implements CameraSource.Listener {
                 roundLvl = Math.max(0, Math.min(2, o.optInt("round", roundLvl)));
                 trackThr = Math.max(1, Math.min(60, o.optInt("thr", trackThr)));
                 smoothView = o.optBoolean("view", smoothView);
+                holdBox = Math.max(0, Math.min(1000, o.optInt("fbox", holdBox)));
+                final boolean hold = o.optBoolean("fhold", holdFace);
+                if (hold != holdFace) { synchronized (lock) { holdFace = hold; holdSeen = false; } }
                 final boolean join = o.optBoolean("join", joinFrames);
                 if (join != joinFrames) { joinFrames = join; runOnUiThread(() -> { if (camera != null) camera.setGather(join); }); }
                 if (recording) return;

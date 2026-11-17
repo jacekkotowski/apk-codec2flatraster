@@ -45,6 +45,18 @@ JNIEXPORT jint JNICALL F(gatherInfo)(JNIEnv *e, jclass c, jlong h) {
     return frames | base << 8 | thr << 16;
 }
 
+/* Holds the face still (flat_set_hold). cx < 0: no face seen. */
+JNIEXPORT void JNICALL F(setHold)(JNIEnv *e, jclass c, jlong h, jint cx, jint cy, jint fw, jint fh, jint zoom, jint alpha, jint dead, jint box) {
+    if (h) flat_set_hold(H(h), cx, cy, fw, fh, zoom, alpha, dead, box);
+}
+/* Measures how far the face moved since the previous camera frame, from the picture (flat_track). Same plane as process() and gather(). */
+JNIEXPORT void JNICALL F(track)(JNIEnv *e, jclass c, jlong h, jobject yb, jint yStride, jint sw, jint sh) {
+    if (!h || sw < 2 || sh < 2) return;
+    const uint8_t *y = (*e)->GetDirectBufferAddress(e, yb);
+    if (!y || (jlong)(sh - 1) * yStride + sw > (*e)->GetDirectBufferCapacity(e, yb)) return;
+    flat_track(H(h), y, yStride, sw, sh);
+}
+
 /* Enlarges a picture for the screen with smooth borders (smooth.c). dst must hold w*factor * h*factor ints. */
 JNIEXPORT void JNICALL F(upscale)(JNIEnv *e, jclass c, jintArray src, jint w, jint h, jint factor, jint tol, jintArray dst) {
     if (!src || !dst || w < 1 || h < 1 || factor < 1 || factor > 8) return;

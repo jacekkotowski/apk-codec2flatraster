@@ -42,8 +42,9 @@ int flat_changed(const Flat *f);
 void flat_mark_sent(Flat *f);
 
 /* Focus boxes (faces): count boxes of x0,y0,x1,y1 in the pixels of the frame given to the next flat_load_*.
-   coarse 0: no effect. 1 or 2: everything outside the boxes uses only a half or a quarter of the colours. With no
-   boxes that applies to the whole picture. Call before loading a frame. */
+   coarse 0: no effect. 1 or 2: everything outside the boxes uses only a half or a quarter of the colours. 3: everything
+   outside the boxes is one flat colour, so a background has no borders to cost bits. With no boxes that applies to the
+   whole picture. Call before loading a frame. */
 void flat_set_focus(Flat *f, const int *rects, int count, int coarse);
 
 /* Colour tracking: 0 keeps the palette locked between rebuilds. Above 0 the colours are refitted to every picture
@@ -55,6 +56,32 @@ void flat_set_track(Flat *f, int threshold, int full);
 
 /* Border rounding: 0 off, 1 or 2 passes of a 5x5 most-common-colour filter after everything else. */
 void flat_set_round(Flat *f, int passes);
+
+/* Holds the face still: the part of the camera frame that becomes the picture is a window that follows the face, and the focus box
+   follows it too. Call before every flat_load_* and flat_gather with the face rectangle the camera reported, in the camera frame's own
+   pixels (cx < 0: no face seen this time; the window stays where it was).
+   zoom100: how much smaller the window is than the frame, in hundredths (100 = the whole frame, which leaves no room to follow; 125
+   = a window of 80% of the frame, which can follow a face that moves by 10% of the frame to each side).
+   alpha1000: how much of the way to the face's present place the face's smoothed position moves at each call, in thousandths (1000 =
+   all of it; less smooths out the trembling of a face detector). The face's size is smoothed four times slower.
+   deadzone: the window moves only when the smoothed face is more than this many camera pixels from the window's middle, and then to
+   the face. 0 moves it at every call. A window that moves every picture moves every border in the picture, and every border that
+   moves costs bits; one that stays put until it must move costs them only then.
+   box1000: when 0 or more, the focus box is made here instead of by flat_set_focus: the window's middle, the face's size, widened by
+   this share (in thousandths) of the size on every side. It then moves with the window, so the border of the flat background does not
+   jump about with the detector's trembling. -1 leaves the boxes to flat_set_focus (whose level, coarse, is used either way).
+   With zoom100 100 and no calls to this function the picture is as before. */
+void flat_set_hold(Flat *f, int cx, int cy, int fw, int fh, int zoom100, int alpha1000, int deadzone, int box1000);
+/* Keeps the window on the face by looking at the picture instead of trusting the detector's rectangle, which trembles by a few
+   pixels from frame to frame (and every pixel the face shifts in the picture moves its whole outline, which costs bits). Call after
+   flat_set_hold and before loading the same camera frame, for every camera frame, with its brightness plane. Each call measures how
+   far the face has moved since the previous call (the brightness inside the face rectangle is matched against the previous frame,
+   to a fraction of a pixel) and moves the window by that. The detector's smoothed position pulls the window back slowly, so errors
+   cannot add up. Without calls to this function the window follows the detector. */
+void flat_track(Flat *f, const uint8_t *y, int yStride, int sw, int sh);
+/* The window of the last frame loaded, as a share of the frame in thousandths: left, top, width, height (of the upright, unmirrored
+   picture). For tests. */
+void flat_window(const Flat *f, int *left, int *top, int *width, int *height);
 
 /* Forces a new palette on the next flat_run. */
 void flat_reset(Flat *f);
