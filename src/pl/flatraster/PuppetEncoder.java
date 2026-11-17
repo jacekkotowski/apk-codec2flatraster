@@ -39,7 +39,9 @@ final class PuppetEncoder implements PictureEncoder, CameraAware {
 
     @Override public void encode(byte[] i420, long timeMs) throws java.io.IOException {
         if (forceKey || lastKeyMs < 0 || timeMs - lastKeyMs >= keyMs) {
-            Exact.Coded c = ex.encode(flat, true);
+            Exact.Coded c = null;
+            if (last.mask != null) c = ex.encodeMasked(flat, pictureMask(last), Math.max(4, w / 20));   // the person as seen, the background as a coarse colour map
+            if (c == null) c = ex.encode(flat, true);
             if (c == null) throw new java.io.IOException("the key picture could not be coded");
             sink.video(FrvWriter.KEY, timeMs, c.data);
             keyBytes += c.data.length; lastKeyMs = timeMs; forceKey = false;
@@ -54,6 +56,13 @@ final class PuppetEncoder implements PictureEncoder, CameraAware {
         if (b == null) throw new java.io.IOException("the points could not be coded");
         sink.video(FrvWriter.POINTS, timeMs, b);
         pointsBytes += b.length; pictures++;
+    }
+
+    /** The models' mask (mw x mh) at the picture's size, nearest pixel. */
+    private byte[] pictureMask(Landmarks.Result r) {
+        byte[] m = new byte[w * h];
+        for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) m[y * w + x] = r.mask[Math.min(r.mh - 1, y * r.mh / h) * r.mw + Math.min(r.mw - 1, x * r.mw / w)];
+        return m;
     }
 
     private int put(int[] units, int u, float[] p) {

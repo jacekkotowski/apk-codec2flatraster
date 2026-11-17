@@ -22,7 +22,7 @@ final class PuppetDraw {
         int[] o = new int[w * h];
         for (int i = 0; i < o.length; i++) {
             int p = base == null ? 0xffe0e0e0 : base[i];
-            int r = ((p >> 16 & 255) * 2 + 255 * 3) / 5, g = ((p >> 8 & 255) * 2 + 255 * 3) / 5, b = ((p & 255) * 2 + 255 * 3) / 5;   // 40% of the key picture, 60% white
+            int r = ((p >> 16 & 255) * 3 + 255 * 2) / 5, g = ((p >> 8 & 255) * 3 + 255 * 2) / 5, b = ((p & 255) * 3 + 255 * 2) / 5;   // 60% of the key picture, 40% white
             o[i] = 0xff000000 | r << 16 | g << 8 | b;
         }
         int t = Math.max(1, h / 70);

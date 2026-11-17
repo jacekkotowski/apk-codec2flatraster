@@ -64,6 +64,22 @@ public class PuppetTest {
         // two small checks of the drawing: points far outside the picture do not crash it; a missing object leaves just the key picture
         PuppetDraw.draw(null, w, h, new float[44], new float[]{-500, 900, 3000, -20, 1e9f, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0});
         check(true, "points outside the picture are clipped");
+        // the person cut-out: the background becomes a coarse colour map, the person keeps the filter's colours
+        byte[] mask = new byte[w * h];
+        for (int yy = 0; yy < h; yy++) for (int xx = 0; xx < w; xx++) { double dx = (xx - 80) / 30.0, dy = (yy - 60) / 40.0; mask[yy * w + xx] = (byte) (dx * dx + dy * dy < 1 ? 1 : 0); }
+        Exact.Coded plain = ex.encode(flat, true), cut = ex.encodeMasked(flat, mask, 8);
+        int[] pc = new int[w * h]; boolean got = cut != null && dec.decode(FrvWriter.KEY, cut.data, pc);
+        boolean person = got, blocks = got;
+        for (int by = 0; by < h && got; by += 8) for (int bx = 0; bx < w; bx += 8) {
+            int bg = -1;
+            for (int yy = by; yy < by + 8 && yy < h; yy++) for (int xx = bx; xx < bx + 8 && xx < w; xx++) {
+                if (mask[yy * w + xx] == 1) person &= pc[yy * w + xx] == argb[yy * w + xx];
+                else { if (bg == -1) bg = pc[yy * w + xx]; blocks &= pc[yy * w + xx] == bg; }
+            }
+        }
+        check(got && person, "cut-out: the person's pixels are exactly the filter's");
+        check(blocks, "cut-out: every 8 x 8 block of background is one colour");
+        check(got && cut.data.length < plain.data.length, "cut-out key picture is smaller (" + (cut == null ? -1 : cut.data.length) + " against " + plain.data.length + " bytes)");
         // short packets: times (absolute at key pictures, relative between), damage in the middle costs only the damaged packet
         boolean timesOk = true; long tPrev = 0; int idx = 0;
         for (FrvReader.Packet p : rd.packets) { if (p.type == FrvWriter.POINTS) { timesOk &= p.timeMs == idx * 500L; idx++; } }

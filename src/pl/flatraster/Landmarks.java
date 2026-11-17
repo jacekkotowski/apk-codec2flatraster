@@ -2,6 +2,7 @@ package pl.flatraster;
 
 import android.content.Context;
 import android.media.Image;
+import com.google.mediapipe.framework.image.ByteBufferExtractor;
 import com.google.mediapipe.framework.image.ByteBufferImageBuilder;
 import com.google.mediapipe.framework.image.MPImage;
 import com.google.mediapipe.tasks.components.containers.NormalizedLandmark;
@@ -28,7 +29,7 @@ final class Landmarks implements java.io.Closeable {
     private byte[] rgba = new byte[0];
 
     /** Points of one frame in picture fractions (x, y in 0..1): face = 44 floats, body = 16 floats; null when not found. */
-    static final class Result { float[] face, body; }
+    static final class Result { float[] face, body; byte[] mask; int mw, mh; /* person mask at the size given to the models: 1 = person */ }
 
     Landmarks(Context ctx) {
         face = FaceLandmarker.createFromOptions(ctx, FaceLandmarker.FaceLandmarkerOptions.builder()
@@ -36,7 +37,7 @@ final class Landmarks implements java.io.Closeable {
                 .setRunningMode(RunningMode.VIDEO).setNumFaces(1).build());
         pose = PoseLandmarker.createFromOptions(ctx, PoseLandmarker.PoseLandmarkerOptions.builder()
                 .setBaseOptions(BaseOptions.builder().setModelAssetPath("pose_landmarker_lite.task").build())
-                .setRunningMode(RunningMode.VIDEO).setNumPoses(1).build());
+                .setRunningMode(RunningMode.VIDEO).setNumPoses(1).setOutputSegmentationMasks(true).build());
     }
 
     Result detect(Image img, int rotation, boolean mirror, long timeMs) {
@@ -62,6 +63,18 @@ final class Landmarks implements java.io.Closeable {
             List<NormalizedLandmark> l = pr.landmarks().get(0);
             r.body = new float[PuppetDraw.BODY * 2];
             for (int i = 0; i < PuppetDraw.BODY; i++) { NormalizedLandmark q = l.get(PuppetDraw.BODY_IDX[i]); r.body[2 * i] = q.x(); r.body[2 * i + 1] = q.y(); }
+        }
+        if (pr.segmentationMasks().isPresent() && !pr.segmentationMasks().get().isEmpty()) {
+            try {
+                MPImage m = pr.segmentationMasks().get().get(0);
+                ByteBuffer fb = ByteBufferExtractor.extract(m);
+                int mw = m.getWidth(), mh = m.getHeight();
+                r.mask = new byte[mw * mh]; r.mw = mw; r.mh = mh;
+                fb.rewind();
+                if (fb.remaining() >= mw * mh * 4) { java.nio.FloatBuffer f = fb.asFloatBuffer(); for (int i = 0; i < mw * mh; i++) r.mask[i] = (byte) (f.get(i) > 0.5f ? 1 : 0); }
+                else if (fb.remaining() >= mw * mh) for (int i = 0; i < mw * mh; i++) r.mask[i] = (byte) ((fb.get(i) & 255) > 127 ? 1 : 0);
+                else r.mask = null;
+            } catch (RuntimeException e) { r.mask = null; }          // no mask: the key picture is then the whole filter picture
         }
         return r;
     }

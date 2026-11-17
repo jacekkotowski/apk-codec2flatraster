@@ -42,6 +42,44 @@ JNIEXPORT jint JNICALL X(encode)(JNIEnv *e, jclass c, jlong h, jlong flat, jbool
     return n < 0 ? -1 : (n | (key ? 1 << 30 : 0));
 }
 
+/* Like encode, always a key picture, but the background (mask 0) is replaced by a coarse colour map: every block x block square of the picture is given
+   the most common colour of its background pixels, so the background costs next to nothing and still says what kind of place it is. Person pixels
+   (mask 1) keep the filter's colours. mask: w*h bytes. Returns the length | 1 << 30, or -1. */
+JNIEXPORT jint JNICALL X(encodeMasked)(JNIEnv *e, jclass c, jlong h, jlong flat, jbyteArray mask, jint block, jbyteArray out) {
+    (void)c;
+    Ex *x = (Ex *)(intptr_t)h; Flat *f = (Flat *)(intptr_t)flat;
+    if (!x || !f || !out || !mask || block < 2 || (*e)->GetArrayLength(e, mask) < x->w * x->h) return -1;
+    int k = flat_colors(f);
+    if (k < 1 || k > FLATCODE_MAX_COLORS) return -1;
+    uint8_t pal[3 * FLATCODE_MAX_COLORS]; flat_palette_rgb(f, pal);
+    size_t n = (size_t)x->w * (size_t)x->h;
+    uint8_t *lab = malloc(n), *m = malloc(n);
+    int cap = (*e)->GetArrayLength(e, out);
+    uint8_t *buf = malloc((size_t)cap);
+    int r = -1;
+    if (lab && m && buf) {
+        memcpy(lab, flat_labels(f), n);
+        (*e)->GetByteArrayRegion(e, mask, 0, (jsize)n, (jbyte *)m);
+        for (int by = 0; by < x->h; by += block) for (int bx = 0; bx < x->w; bx += block) {
+            int cnt[FLATCODE_MAX_COLORS] = {0}, any = 0;
+            for (int y = by; y < by + block && y < x->h; y++) for (int xx = bx; xx < bx + block && xx < x->w; xx++)
+                if (!m[y * x->w + xx]) { int l = lab[y * x->w + xx]; if (l < k) { cnt[l]++; any = 1; } }
+            if (!any) continue;
+            int best = 0; for (int i = 1; i < k; i++) if (cnt[i] > cnt[best]) best = i;
+            for (int y = by; y < by + block && y < x->h; y++) for (int xx = bx; xx < bx + block && xx < x->w; xx++)
+                if (!m[y * x->w + xx]) lab[y * x->w + xx] = (uint8_t)best;
+        }
+        r = flatcode_encode_key(lab, x->w, x->h, pal, k, buf, cap);
+        if (r >= 0) {
+            (*e)->SetByteArrayRegion(e, out, 0, r, (const jbyte *)buf);
+            memcpy(x->lab, lab, n); memcpy(x->pal, pal, (size_t)(3 * k)); x->k = k; x->have = 1;
+            r |= 1 << 30;
+        }
+    }
+    free(lab); free(m); free(buf);
+    return r;
+}
+
 /* Decodes one packet into argb (w*h ints). Returns 0, or -1 if the packet does not decode or a delta comes before any key picture. */
 JNIEXPORT jint JNICALL X(decode)(JNIEnv *e, jclass c, jlong h, jboolean key, jbyteArray data, jintArray argb) {
     Ex *x = (Ex *)(intptr_t)h;
