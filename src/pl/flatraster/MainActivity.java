@@ -206,8 +206,11 @@ public class MainActivity extends Activity implements CameraSource.Listener {
 
     /** The window that follows the face, for this camera frame (flat_set_hold, flat_track). Holding waits for the first face: until then
      *  the picture is the whole frame, as before. Called with the lock held, before the frame is loaded or gathered. */
+    /** Hold face still is off while the Puppet format records: its landmarks are in the whole camera frame, so the picture must be the whole frame. */
+    private boolean holdOn() { return holdFace && wantCodec != FrvWriter.PUPPET; }
+
     private void holdStep(Image.Plane yPlane, int w, int h, int[] rect) {
-        if (!holdFace) { Flat.setHold(flat, -1, 0, 0, 0, 100, 1000, 0, -1); holdSeen = false; return; }
+        if (!holdOn()) { Flat.setHold(flat, -1, 0, 0, 0, 100, 1000, 0, -1); holdSeen = false; return; }
         if (rect != null) holdSeen = true;
         if (!holdSeen) { Flat.setHold(flat, -1, 0, 0, 0, 100, 1000, 0, -1); return; }
         if (rect != null) Flat.setHold(flat, rect[0], rect[1], rect[2], rect[3], 125, 500, 0, holdBox);
@@ -250,7 +253,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             // Faces: full colours inside the boxes, fewer colours everywhere else.
             int focus = focusLvl, nFaces = focus > 0 && faces != null ? faces.length / 4 : 0;
             Image.Plane[] p = img.getPlanes();
-            if (holdFace) { // the box is made in the filter and follows the window; everything outside it is one flat colour
+            if (holdOn()) { // the box is made in the filter and follows the window; everything outside it is one flat colour
                 Flat.setFocus(flat, faces, 0, holdSeen || faceRect != null ? 3 : 0);
                 holdStep(p[0], img.getWidth(), img.getHeight(), faceRect);
                 nFaces = faceRect != null ? 1 : 0;
@@ -274,7 +277,11 @@ public class MainActivity extends Activity implements CameraSource.Listener {
                 int still = stillLvl;
                 if (still > 0 && frames > 0 && r != 1 && Flat.changed(flat) * 1000L < (long) STILL[still - 1] * fw * fh) skipped++;
                 else {
-                    try { enc.encode(i420, Math.max(0, (timeNs - recStartNs) / 1_000_000)); frames++; Flat.markSent(flat); }
+                    try {
+                        long tMs = Math.max(0, (timeNs - recStartNs) / 1_000_000);
+                        if (enc instanceof CameraAware) ((CameraAware) enc).cameraFrame(img, rotation, mirror, tMs);   // the puppet encoder finds its points in the camera frame
+                        enc.encode(i420, tMs); frames++; Flat.markSent(flat);
+                    }
                     catch (Exception e) { fail = "Recording stopped: " + e.getMessage(); }
                 }
             }
@@ -328,7 +335,8 @@ public class MainActivity extends Activity implements CameraSource.Listener {
             try {
                 // The sink reads `writer` when a packet comes out, which is always after it is set below.
                 PictureEncoder.Sink sink = (type, t, d) -> { FrvWriter fw2 = writer; if (fw2 != null) fw2.write(type, t, d, 0, d.length); };
-                e = wantCodec == FrvWriter.EXACT ? new ExactEncoder(flat, fw, fh, keySec, sink) : new VideoEncoder(wantCodec, fw, fh, fps, kbps * 1000, keySec, sink);
+                e = wantCodec == FrvWriter.PUPPET ? new PuppetEncoder(this, flat, fw, fh, keySec, sink)
+                        : wantCodec == FrvWriter.EXACT ? new ExactEncoder(flat, fw, fh, keySec, sink) : new VideoEncoder(wantCodec, fw, fh, fps, kbps * 1000, keySec, sink);
                 writer = new FrvWriter(f, e.codec(), fw, fh, VoiceBridge.bitstream(), voiceQ);
             } catch (Exception ex) {
                 if (e != null) e.close();
@@ -531,7 +539,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
                 keySec = Math.max(1, Math.min(600, o.optInt("key", keySec)));
                 skipSilence = o.optBoolean("skip", skipSilence);
                 lockLight = o.optBoolean("lock", lockLight);
-                wantCodec = Math.max(-1, Math.min(FrvWriter.EXACT, o.optInt("codec", wantCodec)));
+                wantCodec = Math.max(-1, Math.min(FrvWriter.PUPPET, o.optInt("codec", wantCodec)));
                 // Sound, as in Codec2 Recorder. Rec level, sensitivity and hold apply at once, also while recording; the rest from the next recording.
                 sound.gainDb = o.optBoolean("auto", true) ? -100 : Math.max(-12, Math.min(36, o.optInt("rl", 12)));
                 sound.sensitivity = Math.max(1, Math.min(10, o.optInt("sens", sound.sensitivity)));

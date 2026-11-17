@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PLAN-edge.md task 1.4: the motion picture. Landmarks of one picture, coded from the last two.
 
-Three objects per picture, in this order: face (22 points, marks.FACE_IDX), hand 0 and hand 1 (21 points each; hands sorted by wrist x).
+Three objects per picture by default (N; the puppet stream of the app sets N = (22, 33): face and body), in this order: face (22 points, marks.FACE_IDX), hand 0 and hand 1 (21 points each; hands sorted by wrist x).
 Coordinates are in pixels of the coded picture (the 160x120 edge map), i.e. camera pixels / `scale` (4 for 640x480 -> 160x120).
 Everything inside is integers in units of `step` coded pixels (0.5 by default): u = round(x / step); the decoder returns u * step, so every
 decoded point is within step/2 of the input in each axis.
@@ -49,7 +49,7 @@ def _prior():
 class _Models:
     def __init__(self):
         self.res = {}
-        self.pres = {(o, w): flatcoder.Model(2) for o in range(3) for w in (0, 1)}
+        self.pres = {(o, w): flatcoder.Model(2) for o in range(8) for w in (0, 1)}
         self.nbits = flatcoder.Model(16)
         self.sign = flatcoder.Model(2)
 
@@ -100,7 +100,7 @@ def _code(coder, md, last, last2, cur_u):
     passes None. Returns the decoded list (units)."""
     enc = cur_u is not None
     out = []
-    for o in range(3):
+    for o in range(len(N)):
         n = N[o]
         kind = 0 if o == 0 else 1
         had = last[o] is not None
@@ -147,8 +147,8 @@ class MotionEncoder:
 
     def reset(self):
         self.md = _Models()
-        self.last = [None] * 3
-        self.last2 = [None] * 3
+        self.last = [None] * len(N)
+        self.last2 = [None] * len(N)
 
     def encode(self, cur):
         """cur: list of 3 (None or float array [n,2] in coded pixels). Returns bytes; updates the state (decoded values)."""

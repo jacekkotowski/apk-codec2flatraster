@@ -1,0 +1,70 @@
+package pl.flatraster;
+
+import android.content.Context;
+import android.media.Image;
+
+/** Records the "puppet" stream: a posterized key picture (the Exact coder) at the start and every keySeconds, and between them only the
+ *  landmark points of the face and the upper body, found by MediaPipe's neural models on the camera frame, coded with the point coder.
+ *  See FrvWriter for the packet layout. The receiver draws the key picture faded with the puppet over it. */
+final class PuppetEncoder implements PictureEncoder, CameraAware {
+    /** Coordinates are integer units of width / UNITS across the picture, in both directions. */
+    static final int UNITS = PuppetDraw.UNITS;
+    private final Exact ex;
+    private final Points points = new Points(PuppetDraw.SIZES);
+    private final Landmarks marks;
+    private final PictureEncoder.Sink sink;
+    private final long flat, keyMs;
+    private final int w, h;
+    private long lastKeyMs = -1;
+    private boolean forceKey = true;
+    private Landmarks.Result last = new Landmarks.Result();
+    private int pointsBytes, keyBytes, pictures;
+
+    PuppetEncoder(Context ctx, long flat, int w, int h, int keySeconds, PictureEncoder.Sink sink) {
+        this.flat = flat; this.w = w; this.h = h; this.sink = sink; this.keyMs = Math.max(1, keySeconds) * 1000L;
+        ex = new Exact(w, h);
+        try { marks = new Landmarks(ctx); } catch (RuntimeException | UnsatisfiedLinkError | NoClassDefFoundError e) {
+            ex.close(); points.close();
+            throw new IllegalStateException("The puppet models can't start on this phone (" + e.getMessage() + "). They need a 64-bit ARM phone.");
+        }
+    }
+
+    @Override public int codec() { return FrvWriter.PUPPET; }
+    @Override public String describe() { return "Puppet " + w + "x" + h + " (face and body points, key picture every few seconds)"; }
+
+    @Override public void cameraFrame(Image img, int rotation, boolean mirror, long timeMs) {
+        try { last = marks.detect(img, rotation, mirror, timeMs); }
+        catch (RuntimeException e) { last = new Landmarks.Result(); }        // a frame the models fail on counts as "nobody found"
+    }
+
+    @Override public void encode(byte[] i420, long timeMs) throws java.io.IOException {
+        if (forceKey || lastKeyMs < 0 || timeMs - lastKeyMs >= keyMs) {
+            Exact.Coded c = ex.encode(flat, true);
+            if (c == null) throw new java.io.IOException("the key picture could not be coded");
+            sink.video(FrvWriter.KEY, timeMs, c.data);
+            keyBytes += c.data.length; lastKeyMs = timeMs; forceKey = false;
+            points.reset();
+        }
+        int[] present = {last.face != null ? 1 : 0, last.body != null ? 1 : 0};
+        int[] units = new int[PuppetDraw.SIZES[0] * 2 + PuppetDraw.SIZES[1] * 2];
+        int u = 0;
+        u = put(units, u, last.face);
+        u = put(units, u, last.body);
+        byte[] b = points.encode(present, units.length == 0 ? new int[2] : java.util.Arrays.copyOf(units, Math.max(2, u)));
+        if (b == null) throw new java.io.IOException("the points could not be coded");
+        sink.video(FrvWriter.POINTS, timeMs, b);
+        pointsBytes += b.length; pictures++;
+    }
+
+    private int put(int[] units, int u, float[] p) {
+        if (p == null) return u;
+        for (int i = 0; i < p.length; i += 2) {                      // picture fractions to units: x * UNITS, y * UNITS * h / w
+            units[u++] = Math.max(0, Math.min(1023, (int) Math.rint(p[i] * UNITS)));
+            units[u++] = Math.max(0, Math.min(1023, (int) Math.rint(p[i + 1] * UNITS * h / w)));
+        }
+        return u;
+    }
+
+    @Override public void requestKeyFrame() { forceKey = true; }
+    @Override public void close() { marks.close(); points.close(); ex.close(); }
+}

@@ -55,11 +55,14 @@ final class Player {
     private void play(File file, View view) throws Exception {
         FrvReader r = new FrvReader(file);
         durationMs = r.durationMs();
-        MediaCodec dec = null; Thread audio = null; Exact exact = null; int[] exactPx = null;
+        MediaCodec dec = null; Thread audio = null; Exact exact = null; int[] exactPx = null; Points pts = null; boolean puppetBase = false;
         try {
             boolean hasVideo = false, hasAudio = false;
             for (FrvReader.Packet p : r.packets) { hasVideo |= p.type == FrvWriter.KEY; hasAudio |= p.type == FrvWriter.AUDIO; }
-            if (hasVideo && r.codec == FrvWriter.EXACT) { exact = new Exact(r.width, r.height); exactPx = new int[r.width * r.height]; }
+            if (hasVideo && r.codec >= FrvWriter.EXACT) {
+                exact = new Exact(r.width, r.height); exactPx = new int[r.width * r.height];
+                if (r.codec == FrvWriter.PUPPET) pts = new Points(PuppetDraw.SIZES);
+            }
             else if (hasVideo) {
                 MediaFormat f = videoFormat(r);
                 f.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible);
@@ -84,7 +87,14 @@ final class Player {
                 }
                 if (!running) return;
                 if (p.type == FrvWriter.AUDIO) continue;
-                if ((p.type == FrvWriter.KEY || p.type == FrvWriter.DELTA) && exact != null) {
+                if (pts != null && (p.type == FrvWriter.KEY || p.type == FrvWriter.POINTS)) {   // the puppet stream
+                    if (p.type == FrvWriter.KEY) { if (exact.decode(FrvWriter.KEY, p.data, exactPx)) { gotKey = puppetBase = true; pts.reset(); } }
+                    else if (puppetBase) {
+                        int[] present = new int[PuppetDraw.SIZES.length], units = new int[pts.points * 2];
+                        if (pts.decode(p.data, present, units)) view.picture(PuppetDraw.draw(exactPx, r.width, r.height, PuppetDraw.unitsToPixels(units, 0, PuppetDraw.SIZES[0], present[0] != 0, r.width),
+                                PuppetDraw.unitsToPixels(units, present[0] != 0 ? PuppetDraw.SIZES[0] : 0, PuppetDraw.SIZES[1], present[1] != 0, r.width)), r.width, r.height, 0);
+                    }
+                } else if ((p.type == FrvWriter.KEY || p.type == FrvWriter.DELTA) && exact != null) {
                     if (p.type == FrvWriter.KEY) gotKey = true;
                     if (gotKey && exact.decode(p.type, p.data, exactPx)) view.picture(exactPx.clone(), r.width, r.height, 0); // a damaged picture is skipped; the next good key picture repairs it
                 } else if ((p.type == FrvWriter.KEY || p.type == FrvWriter.DELTA) && dec != null) {
@@ -104,6 +114,7 @@ final class Player {
         } catch (InterruptedException ignored) {
         } finally {
             if (exact != null) exact.close();
+            if (pts != null) pts.close();
             if (dec != null) { try { dec.stop(); } catch (Exception ignored) {} dec.release(); }
             if (audio != null) { soundStop = true; audio.interrupt(); try { audio.join(2000); } catch (InterruptedException ignored) {} }
         }

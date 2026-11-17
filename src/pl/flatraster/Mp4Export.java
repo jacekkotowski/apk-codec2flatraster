@@ -17,7 +17,7 @@ final class Mp4Export {
 
     static void export(File frv, File mp4) throws Exception {
         FrvReader r = new FrvReader(frv);
-        if (r.codec == FrvWriter.EXACT) throw new java.io.IOException("SAVE MP4 is not available for Exact recordings yet; they play in this app");
+        if (r.codec >= FrvWriter.EXACT) throw new java.io.IOException("SAVE MP4 is not available for Exact and Puppet recordings yet; they play in this app");
         List<FrvReader.Packet> packets = Player.ordered(r);
         boolean hasVideo = false, hasAudio = false;
         for (FrvReader.Packet p : packets) { hasVideo |= p.type == FrvWriter.KEY; hasAudio |= p.type == FrvWriter.AUDIO; }

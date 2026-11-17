@@ -18,3 +18,10 @@ tests/dred/obj/
 tests/dred/out/
 tests/dred/dredtest
 !dist/*.apk
+
+# MediaPipe downloads (third_party/mediapipe/get.sh)
+third_party/mediapipe/dl/
+third_party/mediapipe/jars/
+third_party/mediapipe/models/
+third_party/mediapipe/lib/
+third_party/mediapipe/x/

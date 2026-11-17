@@ -14,6 +14,8 @@ echo "== focus boxes"; python3 focus_test.py 2>&1 | grep -vE "^Svt|^\[lib"
 echo "== camera frame loading"; gcc -O2 -Wall -Wextra -fsanitize=address,undefined -o "$T/rot" rot_test.c ../jni/flat.c -lm && "$T/rot"
 echo "== exact picture coder (C against Python)"; python3 flatcode_test.py
 echo "== exact coder in the app classes"; bash exact_test.sh
+echo "== landmark point coder (C against Python)"; python3 points_test.py
+echo "== puppet format in the app classes"; bash puppet_test.sh
 echo "== file format"; bash frv_test.sh
 echo "== controls page"; node ui_test.js "$(cd .. && pwd)/assets/index.html" "$T" | tail -1
 echo "== voice: DRED library, resampler, voice track"; bash dred/build.sh > /dev/null

@@ -77,7 +77,7 @@ button.danger{background:var(--rec);border-color:var(--rec);color:#fff}
    <label>Repeating movement<select id="ignore"><option value="0">Record</option><option value="1">Ignore a little</option><option value="2">Ignore</option><option value="3">Ignore a lot</option></select></label>
    <label>Still pictures<select id="still"><option value="0">Record</option><option value="1">Skip if nothing moves</option><option value="2">Skip small changes</option><option value="3">Skip most changes</option></select></label>
    <label>Video bitrate<select id="kbps"><option value="2">2 kbps</option><option value="3">3 kbps</option><option value="5">5 kbps</option><option value="8">8 kbps</option><option value="12">12 kbps</option><option value="20">20 kbps</option><option value="35">35 kbps</option><option value="50">50 kbps</option><option value="100">100 kbps</option></select></label>
-   <label>Video format<select id="codec"><option value="-1">Best available</option><option value="2">AV1</option><option value="1">HEVC</option><option value="0">H.264</option><option value="3">Exact (lossless, smallest; plays only in FlatRaster)</option></select></label>
+   <label>Video format<select id="codec"><option value="-1">Best available</option><option value="2">AV1</option><option value="1">HEVC</option><option value="0">H.264</option><option value="3">Exact (lossless, smallest; plays only in FlatRaster)</option><option value="4">Puppet (face and body points from neural models; a key picture every few seconds; plays only in FlatRaster)</option></select></label>
    <label>Full picture every<select id="key"><option value="10">10 s</option><option value="30">30 s</option><option value="60">1 min</option><option value="120">2 min</option></select></label>
    <label>Silence<select id="skip"><option value="0">Record</option><option value="1">Skip</option></select></label>
    <label>Voice<select id="voice"></select></label>
@@ -161,7 +161,7 @@ function tick(){
   $('flip').disabled = rec;
   $('round').options[1].textContent = s.roundOff ? 'Rounded (not at this size: it would wipe out eyes)' : 'Rounded'; $('round').options[2].textContent = s.roundOff ? 'Very rounded (not at this size)' : 'Very rounded';
   var av = (s.avail || '').split(',');
-  Array.prototype.forEach.call($('codec').options, function(o){ if (o.value !== '-1' && o.value !== '3') o.disabled = av.indexOf(o.value) < 0 });
+  Array.prototype.forEach.call($('codec').options, function(o){ if (o.value !== '-1' && o.value !== '3' && o.value !== '4') o.disabled = av.indexOf(o.value) < 0 });
   if (rec) {
     $('clock').textContent = clock(s.ms || 0);
     $('rate').textContent = 'video ' + ((s.vbps||0)/1000).toFixed(2) + ' kbps, voice ' + Math.round(s.abps||0) + ' bit/s' + (s.quiet ? ' (silence)' : '') + ', ' + size(s.bytes||0) + ', ' + (s.frames||0) + ' pictures' + (s.skipped ? ' (' + s.skipped + ' skipped)' : '');
