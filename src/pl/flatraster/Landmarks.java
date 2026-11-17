@@ -25,6 +25,8 @@ final class Landmarks implements java.io.Closeable {
     static final int SIZE = 320;           // long side of the frame given to the models
     private final FaceLandmarker face;
     private final PoseLandmarker pose;
+    private PoseLandmarker poseSeg;          // the same model with the person mask on, used only for a key picture, made when first needed
+    private final Context ctx;
     private long lastTs = -1;
     private byte[] rgba = new byte[0];
 
@@ -32,15 +34,16 @@ final class Landmarks implements java.io.Closeable {
     static final class Result { float[] face, body; byte[] mask; int mw, mh; /* person mask at the size given to the models: 1 = person */ String maskNote = "pose model gave no mask"; }
 
     Landmarks(Context ctx) {
+        this.ctx = ctx;
         face = FaceLandmarker.createFromOptions(ctx, FaceLandmarker.FaceLandmarkerOptions.builder()
                 .setBaseOptions(BaseOptions.builder().setModelAssetPath("face_landmarker.task").build())
                 .setRunningMode(RunningMode.VIDEO).setNumFaces(1).build());
         pose = PoseLandmarker.createFromOptions(ctx, PoseLandmarker.PoseLandmarkerOptions.builder()
                 .setBaseOptions(BaseOptions.builder().setModelAssetPath("pose_landmarker_lite.task").build())
-                .setRunningMode(RunningMode.VIDEO).setNumPoses(1).setOutputSegmentationMasks(true).build());
+                .setRunningMode(RunningMode.VIDEO).setNumPoses(1).build());
     }
 
-    Result detect(Image img, int rotation, boolean mirror, long timeMs) {
+    Result detect(Image img, int rotation, boolean mirror, long timeMs, boolean wantMask) {
         int sw = img.getWidth(), sh = img.getHeight();
         boolean turned = rotation % 180 != 0;
         int pw = turned ? sh : sw, ph = turned ? sw : sh;
@@ -64,20 +67,28 @@ final class Landmarks implements java.io.Closeable {
             r.body = new float[PuppetDraw.BODY * 2];
             for (int i = 0; i < PuppetDraw.BODY; i++) { NormalizedLandmark q = l.get(PuppetDraw.BODY_IDX[i]); r.body[2 * i] = q.x(); r.body[2 * i + 1] = q.y(); }
         }
-        if (pr.segmentationMasks().isPresent() && !pr.segmentationMasks().get().isEmpty()) {
-            try {
-                MPImage m = pr.segmentationMasks().get().get(0);
-                ByteBuffer fb = ByteBufferExtractor.extract(m);
-                int mw = m.getWidth(), mh = m.getHeight();
-                r.mask = new byte[mw * mh]; r.mw = mw; r.mh = mh;
-                fb.rewind();
-                if (fb.remaining() >= mw * mh * 4) { java.nio.FloatBuffer f = fb.asFloatBuffer(); for (int i = 0; i < mw * mh; i++) r.mask[i] = (byte) (f.get(i) > 0.5f ? 1 : 0); }
-                else if (fb.remaining() >= mw * mh) for (int i = 0; i < mw * mh; i++) r.mask[i] = (byte) ((fb.get(i) & 255) > 127 ? 1 : 0);
-                else { r.mask = null; r.maskNote = "mask in an unknown format (" + fb.remaining() + " bytes for " + mw + "x" + mh + ")"; }
-                if (r.mask != null) r.maskNote = "person mask " + mw + "x" + mh;
-            } catch (RuntimeException e) { r.mask = null; r.maskNote = "mask failed: " + e; }          // no mask: the key picture is then the whole filter picture
-        }
+        if (wantMask) addMask(r, mp);
         return r;
+    }
+
+    /** The person mask for this frame, from a second pose model run in IMAGE mode (only for key pictures). Any failure only means "no cut-out". */
+    private void addMask(Result r, MPImage mp) {
+        try {
+            if (poseSeg == null) poseSeg = PoseLandmarker.createFromOptions(ctx, PoseLandmarker.PoseLandmarkerOptions.builder()
+                    .setBaseOptions(BaseOptions.builder().setModelAssetPath("pose_landmarker_lite.task").build())
+                    .setRunningMode(RunningMode.IMAGE).setNumPoses(1).setOutputSegmentationMasks(true).build());
+            PoseLandmarkerResult pr = poseSeg.detect(mp);
+            if (!pr.segmentationMasks().isPresent() || pr.segmentationMasks().get().isEmpty()) { r.maskNote = "pose model gave no mask"; return; }
+            MPImage m = pr.segmentationMasks().get().get(0);
+            ByteBuffer fb = ByteBufferExtractor.extract(m);
+            int mw = m.getWidth(), mh = m.getHeight();
+            byte[] mk = new byte[mw * mh];
+            fb.rewind();
+            if (fb.remaining() >= mw * mh * 4) { java.nio.FloatBuffer f = fb.asFloatBuffer(); for (int i = 0; i < mw * mh; i++) mk[i] = (byte) (f.get(i) > 0.5f ? 1 : 0); }
+            else if (fb.remaining() >= mw * mh) for (int i = 0; i < mw * mh; i++) mk[i] = (byte) ((fb.get(i) & 255) > 127 ? 1 : 0);
+            else { r.maskNote = "mask in an unknown format (" + fb.remaining() + " bytes for " + mw + "x" + mh + ")"; return; }
+            r.mask = mk; r.mw = mw; r.mh = mh; r.maskNote = "person mask " + mw + "x" + mh;
+        } catch (Throwable e) { r.mask = null; r.maskNote = "mask failed: " + e; }
     }
 
     /** Camera planes to RGBA in the picture's orientation: rotation clockwise (0, 90, 180, 270), then mirrored left to right (as flat.c does). */
@@ -103,5 +114,5 @@ final class Landmarks implements java.io.Closeable {
         }
     }
 
-    @Override public void close() { face.close(); pose.close(); }
+    @Override public void close() { face.close(); pose.close(); if (poseSeg != null) poseSeg.close(); }
 }

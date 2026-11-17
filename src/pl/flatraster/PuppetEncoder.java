@@ -19,7 +19,7 @@ final class PuppetEncoder implements PictureEncoder, CameraAware {
     private boolean forceKey = true;
     private Landmarks.Result last = new Landmarks.Result();
     private int pointsBytes, keyBytes, pictures;
-    private volatile String keyNote = "no key picture yet";
+    private volatile String keyNote = "no key picture yet", pointsNote = "no frame yet";
 
     PuppetEncoder(Context ctx, long flat, int w, int h, int keySeconds, PictureEncoder.Sink sink) {
         this.flat = flat; this.w = w; this.h = h; this.sink = sink; this.keyMs = Math.max(1, keySeconds) * 1000L;
@@ -31,11 +31,12 @@ final class PuppetEncoder implements PictureEncoder, CameraAware {
     }
 
     @Override public int codec() { return FrvWriter.PUPPET; }
-    @Override public String describe() { return "Puppet " + w + "x" + h + ", " + keyNote + ", " + pictures + " pictures"; }
+    @Override public String describe() { return "Puppet " + w + "x" + h + ", " + keyNote + ", " + pointsNote + ", " + pictures + " pictures, face " + (last.face != null ? "found" : "not found") + ", body " + (last.body != null ? "found" : "not found"); }
 
     @Override public void cameraFrame(Image img, int rotation, boolean mirror, long timeMs) {
-        try { last = marks.detect(img, rotation, mirror, timeMs); }
-        catch (RuntimeException e) { last = new Landmarks.Result(); }        // a frame the models fail on counts as "nobody found"
+        boolean keyDue = forceKey || lastKeyMs < 0 || timeMs - lastKeyMs >= keyMs;      // the person mask is only needed for a key picture
+        try { last = marks.detect(img, rotation, mirror, timeMs, keyDue); pointsNote = "points ok"; }
+        catch (Throwable e) { last = new Landmarks.Result(); pointsNote = "POINTS FAILED: " + e; }   // a frame the models fail on counts as "nobody found", and the status line says why
     }
 
     @Override public void encode(byte[] i420, long timeMs) throws java.io.IOException {
