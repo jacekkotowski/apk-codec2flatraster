@@ -14,7 +14,7 @@ final class PuppetDraw {
     private static final int[][] FACE_LINES = {{0, 4}, {4, 1}, {1, 5}, {5, 0}, {2, 6}, {6, 3}, {3, 7}, {7, 2}, {8, 9}, {10, 11},
             {12, 16}, {16, 13}, {13, 17}, {17, 12}, {14, 15}, {20, 19}, {19, 21}, {18, 18}};
     private static final int[][] BODY_LINES = {{0, 1}, {0, 2}, {2, 4}, {1, 3}, {3, 5}, {0, 6}, {1, 7}, {6, 7}};   // shoulders, arms, torso (local numbers)
-    static final int ORANGE = 0xffff8c00, INK = 0xff101010, BODYC = 0xff1060d0;
+    static final int WHITE = 0xffffffff, ORANGE = 0xffff8c00, INK = 0xff101010, BODYC = 0xff1060d0;
 
     /** base: the key picture (argb, w x h) or null for a plain light picture. face: 22 (x, y) pairs or null; body: 8 pairs or null; all in
      *  picture pixels. Returns a new picture. */
@@ -22,15 +22,20 @@ final class PuppetDraw {
         int[] o = new int[w * h];
         for (int i = 0; i < o.length; i++) {
             int p = base == null ? 0xffe0e0e0 : base[i];
-            int r = ((p >> 16 & 255) * 3 + 255 * 2) / 5, g = ((p >> 8 & 255) * 3 + 255 * 2) / 5, b = ((p & 255) * 3 + 255 * 2) / 5;   // 60% of the key picture, 40% white
-            o[i] = 0xff000000 | r << 16 | g << 8 | b;
+            o[i] = 0xff000000 | (p & 0xffffff);                                  // the key picture at full colour: the cut-out left no ghost to hide
         }
         int t = Math.max(1, h / 70);
         if (body != null) {
+            for (int[] l : BODY_LINES) line(o, w, h, body[l[0] * 2], body[l[0] * 2 + 1], body[l[1] * 2], body[l[1] * 2 + 1], t + 3, WHITE);
             for (int[] l : BODY_LINES) line(o, w, h, body[l[0] * 2], body[l[0] * 2 + 1], body[l[1] * 2], body[l[1] * 2 + 1], t + 1, BODYC);
+            for (int i = 0; i <= 5; i++) dot(o, w, h, body[i * 2], body[i * 2 + 1], t + 3, WHITE);
             for (int i = 0; i <= 5; i++) dot(o, w, h, body[i * 2], body[i * 2 + 1], t + 2, BODYC);
         }
         if (face != null) {
+            for (int[] l : FACE_LINES) {                                      // a white outline under the ink so the lines show on dark and light colours
+                if (l[0] == l[1]) dot(o, w, h, face[l[0] * 2], face[l[0] * 2 + 1], t + 3, WHITE);
+                else line(o, w, h, face[l[0] * 2], face[l[0] * 2 + 1], face[l[1] * 2], face[l[1] * 2 + 1], t + 2, WHITE);
+            }
             for (int[] l : FACE_LINES) {
                 if (l[0] == l[1]) dot(o, w, h, face[l[0] * 2], face[l[0] * 2 + 1], t + 1, INK);
                 else line(o, w, h, face[l[0] * 2], face[l[0] * 2 + 1], face[l[1] * 2], face[l[1] * 2 + 1], t, INK);
