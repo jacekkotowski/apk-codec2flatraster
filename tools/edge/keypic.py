@@ -29,7 +29,7 @@ import cv2
 import zstandard
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(HERE, "..", "coder"))
+sys.path.append(os.path.join(HERE, "..", "coder"))
 import flatcoder  # noqa: E402
 
 ZC = zstandard.ZstdCompressor(level=19, write_content_size=False, write_checksum=False, write_dict_id=False)

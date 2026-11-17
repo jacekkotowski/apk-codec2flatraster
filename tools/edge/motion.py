@@ -31,7 +31,7 @@ import math, os, sys
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(HERE, "..", "coder"))
+sys.path.append(os.path.join(HERE, "..", "coder"))
 import flatcoder  # noqa: E402
 
 N = (22, 21, 21)
