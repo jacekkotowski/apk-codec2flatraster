@@ -37,6 +37,8 @@ VARIANTS = {
     "E5": dict(key_every=10),
     "E6": dict(patches=False),
     "E7": dict(warp=False),
+    "E8": dict(thresh=10),          # E1 with the patch threshold 10 and 30 (PLAN-edge.md section 7: tuned in 1.9)
+    "E9": dict(thresh=30),
 }
 
 
