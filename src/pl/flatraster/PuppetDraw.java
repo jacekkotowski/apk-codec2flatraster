@@ -17,31 +17,32 @@ final class PuppetDraw {
             {12, 26}, {26, 14}, {14, 27}, {27, 13}, {13, 29}, {29, 15}, {15, 28}, {28, 12},       // inner lips: the opening
             {20, 19}, {19, 21}, {18, 18}};
     private static final int[][] BODY_LINES = {{0, 1}, {0, 2}, {2, 4}, {1, 3}, {3, 5}, {0, 6}, {1, 7}, {6, 7}};   // shoulders, arms, torso (local numbers)
-    static final int WHITE = 0xffffffff, ORANGE = 0xffff8c00, INK = 0xff101010, BODYC = 0xff1060d0;
+    static final int ORANGE = 0xffff8c00;
 
     /** base: the key picture (argb, w x h) or null for a plain light picture. face: 22 (x, y) pairs or null; body: 8 pairs or null; all in
      *  picture pixels. Returns a new picture. */
+    /** Which lines are drawn (the Puppet lines setting): 0 none, 1 mouth and eyes, 2 all. The orange frame is always there. */
+    static volatile int lines = 1;
+    /** Face lines of mode 1: eyes, brows and the lips (indices into FACE_LINES). */
+    private static boolean eyesAndMouth(int[] l) { return l[0] != 20 && l[0] != 19 && l[0] != l[1]; }
+
     static int[] draw(int[] base, int w, int h, float[] face, float[] body) {
         int[] o = new int[w * h];
         for (int i = 0; i < o.length; i++) {
             int p = base == null ? 0xffe0e0e0 : base[i];
             o[i] = 0xff000000 | (p & 0xffffff);                                  // the key picture at full colour: the cut-out left no ghost to hide
         }
-        int t = Math.max(1, h / 70);
-        if (body != null) {
-            for (int[] l : BODY_LINES) line(o, w, h, body[l[0] * 2], body[l[0] * 2 + 1], body[l[1] * 2], body[l[1] * 2 + 1], t + 3, WHITE);
-            for (int[] l : BODY_LINES) line(o, w, h, body[l[0] * 2], body[l[0] * 2 + 1], body[l[1] * 2], body[l[1] * 2 + 1], t + 1, BODYC);
-            for (int i = 0; i <= 5; i++) dot(o, w, h, body[i * 2], body[i * 2 + 1], t + 3, WHITE);
-            for (int i = 0; i <= 5; i++) dot(o, w, h, body[i * 2], body[i * 2 + 1], t + 2, BODYC);
+        int t = Math.max(1, h / 120);                                   // line width in pixels: 1 at 160 x 120 (the screen enlarges it with the picture)
+        int mode = lines;
+        if (body != null && mode == 2) {
+            for (int[] l : BODY_LINES) line(o, w, h, body[l[0] * 2], body[l[0] * 2 + 1], body[l[1] * 2], body[l[1] * 2 + 1], t, ALPHA_BODY);
+            for (int i = 0; i <= 5; i++) dot(o, w, h, body[i * 2], body[i * 2 + 1], t, ALPHA_BODY);
         }
-        if (face != null) {
-            for (int[] l : FACE_LINES) {                                      // a white outline under the ink so the lines show on dark and light colours
-                if (l[0] == l[1]) dot(o, w, h, face[l[0] * 2], face[l[0] * 2 + 1], t + 3, WHITE);
-                else line(o, w, h, face[l[0] * 2], face[l[0] * 2 + 1], face[l[1] * 2], face[l[1] * 2 + 1], t + 2, WHITE);
-            }
+        if (face != null && mode >= 1) {
             for (int[] l : FACE_LINES) {
-                if (l[0] == l[1]) dot(o, w, h, face[l[0] * 2], face[l[0] * 2 + 1], t + 1, INK);
-                else line(o, w, h, face[l[0] * 2], face[l[0] * 2 + 1], face[l[1] * 2], face[l[1] * 2 + 1], t, INK);
+                if (mode == 1 && !eyesAndMouth(l)) continue;
+                if (l[0] == l[1]) dot(o, w, h, face[l[0] * 2], face[l[0] * 2 + 1], t, ALPHA_FACE);
+                else line(o, w, h, face[l[0] * 2], face[l[0] * 2 + 1], face[l[1] * 2], face[l[1] * 2 + 1], t, ALPHA_FACE);
             }
         }
         int b = Math.max(2, h / 60);                                  // the frame that says "puppet"
@@ -169,16 +170,25 @@ final class PuppetDraw {
         return true;
     }
 
-    private static void dot(int[] o, int w, int h, float x, float y, int r, int c) {
+    /** Lines are thin, semi-transparent and contrast-adaptive, as landmark overlays usually are: where the picture underneath is light the ink is dark,
+     *  where it is dark the ink is light, mixed in at ALPHA, so the line shows on any skin, hair or wall colour without hiding what is under it. */
+    static final float ALPHA_FACE = 0.62f, ALPHA_BODY = 0.5f;
+
+    private static void dot(int[] o, int w, int h, float x, float y, int r, float alpha) {
         int cx = Math.round(x), cy = Math.round(y);
-        for (int dy = -r; dy <= r; dy++) for (int dx = -r; dx <= r; dx++) if (dx * dx + dy * dy <= r * r) put(o, w, h, cx + dx, cy + dy, c);
+        for (int dy = -r / 2; dy <= r / 2; dy++) for (int dx = -r / 2; dx <= r / 2; dx++) put(o, w, h, cx + dx, cy + dy, alpha);
     }
 
-    private static void line(int[] o, int w, int h, float x0, float y0, float x1, float y1, int t, int c) {
+    private static void line(int[] o, int w, int h, float x0, float y0, float x1, float y1, int t, float alpha) {
         float dx = x1 - x0, dy = y1 - y0;
         int n = Math.max(1, (int) Math.ceil(Math.max(Math.abs(dx), Math.abs(dy))));
-        for (int i = 0; i <= n; i++) dot(o, w, h, x0 + dx * i / n, y0 + dy * i / n, Math.max(0, t / 2), c);
+        for (int i = 0; i <= n; i++) dot(o, w, h, x0 + dx * i / n, y0 + dy * i / n, t, alpha);
     }
 
-    private static void put(int[] o, int w, int h, int x, int y, int c) { if (x >= 0 && y >= 0 && x < w && y < h) o[y * w + x] = c; }
+    private static void put(int[] o, int w, int h, int x, int y, float alpha) {
+        if (x < 0 || y < 0 || x >= w || y >= h) return;
+        int p = o[y * w + x], r = p >> 16 & 255, g = p >> 8 & 255, b = p & 255;
+        int ink = (r * 299 + g * 587 + b * 114) / 1000 > 140 ? 0x18 : 0xf4;                 // dark on light, light on dark
+        o[y * w + x] = 0xff000000 | (int) (r + (ink - r) * alpha) << 16 | (int) (g + (ink - g) * alpha) << 8 | (int) (b + (ink - b) * alpha);
+    }
 }

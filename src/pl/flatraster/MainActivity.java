@@ -543,6 +543,7 @@ public class MainActivity extends Activity implements CameraSource.Listener {
                 keySec = Math.max(1, Math.min(600, o.optInt("key", keySec)));
                 skipSilence = o.optBoolean("skip", skipSilence);
                 lockLight = o.optBoolean("lock", lockLight);
+                PuppetDraw.lines = Math.max(0, Math.min(2, o.optInt("plines", 1)));
                 wantCodec = Math.max(-1, Math.min(FrvWriter.PUPPET, o.optInt("codec", wantCodec)));
                 if (wantCodec == FrvWriter.OLD_PUPPET) wantCodec = FrvWriter.PUPPET;   // a setting stored by 0.19 to 0.25
                 // Sound, as in Codec2 Recorder. Rec level, sensitivity and hold apply at once, also while recording; the rest from the next recording.

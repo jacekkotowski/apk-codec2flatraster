@@ -60,7 +60,7 @@ button.danger{background:var(--rec);border-color:var(--rec);color:#fff}
    <div id="thelp">Run self-test takes about a minute. Hold the phone still and leave it alone; the screen stays on. It times the voice coder and the picture filter on this phone and asks each video encoder what it really makes from a made-up scene. Save test clip records 30 s of the microphone with no processing: say a few sentences, then keep quiet for 5 s. Both save a file in Download/FlatRaster. The report is also kept inside the app: Copy report, switch to your chat, paste.</div>
   </div>
   <div id="set">
-   <label>Pictures per second<select id="fps"><option value="0.5">0.5</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="5">5</option></select></label>
+   <label>Pictures per second<select id="fps"><option value="0.5">0.5</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="8">8</option><option value="10">10</option></select></label>
    <label>Picture size<select id="size"><option value="0">160 x 120</option><option value="1">240 x 176</option><option value="2">320 x 240</option><option value="3">480 x 360</option></select></label>
    <label>Colours<select id="colors"><option>4</option><option>6</option><option>8</option><option>12</option><option>16</option><option>24</option><option>32</option></select></label>
    <label>Smoothing<select id="smooth"><option value="0">Off</option><option value="1">Light</option><option value="2">Medium</option><option value="3">Strong</option><option value="5">Very strong</option></select></label>
@@ -78,7 +78,8 @@ button.danger{background:var(--rec);border-color:var(--rec);color:#fff}
    <label>Still pictures<select id="still"><option value="0">Record</option><option value="1">Skip if nothing moves</option><option value="2">Skip small changes</option><option value="3">Skip most changes</option></select></label>
    <label>Video bitrate<select id="kbps"><option value="2">2 kbps</option><option value="3">3 kbps</option><option value="5">5 kbps</option><option value="8">8 kbps</option><option value="12">12 kbps</option><option value="20">20 kbps</option><option value="35">35 kbps</option><option value="50">50 kbps</option><option value="100">100 kbps</option></select></label>
    <label>Video format<select id="codec"><option value="-1">Best available</option><option value="2">AV1</option><option value="1">HEVC</option><option value="0">H.264</option><option value="3">Exact (lossless, smallest; plays only in FlatRaster)</option><option value="5">Puppet (face and body points from neural models; a key picture every few seconds; plays only in FlatRaster)</option></select></label>
-   <label>Full picture every<select id="key"><option value="10">10 s</option><option value="30">30 s</option><option value="60">1 min</option><option value="120">2 min</option></select></label>
+   <label>Puppet lines when playing<select id="plines"><option value="1">Mouth and eyes</option><option value="2">All (face outline, nose, arms)</option><option value="0">None, only the moved picture</option></select></label>
+   <label>Full picture every<select id="key"><option value="2">2 s</option><option value="5">5 s</option><option value="10">10 s</option><option value="30">30 s</option><option value="60">1 min</option><option value="120">2 min</option></select></label>
    <label>Silence<select id="skip"><option value="0">Record</option><option value="1">Skip</option></select></label>
    <label>Voice<select id="voice"></select></label>
    <label>Camera<select id="front"><option value="0">Back</option><option value="1">Front</option></select></label>
@@ -105,8 +106,8 @@ button.danger{background:var(--rec);border-color:var(--rec);color:#fff}
 // Outside the app (a desktop browser) a stand-in bridge keeps the page usable for layout checks.
 var A = window.Android || {status:function(){return '{"camera":true,"avail":"0,1"}'},list:function(){return '[]'},voiceModes:function(){return '["best","balanced","small","smallest"]'},config:function(){},newPalette:function(){},startRec:function(){},stopRec:function(){},play:function(){},stopPlay:function(){},mp4:function(){},remove:function(){},rename:function(){return true},share:function(){}};
 var $ = function(id){return document.getElementById(id)};
-var ids = ['fps','size','colors','smooth','pal','thr','clean','round','join','view','lock','focus','fhold','fbox','ignore','still','kbps','key','skip','codec','voice','front','mic','src','rl','dn','st','rm','cp','ng','cl','tb','sens','hold'];
-var defaults = {fps:'2',size:'2',colors:'8',smooth:'2',pal:'0',thr:'16',clean:'1',round:'1',join:'1',view:'1',lock:'0',focus:'0',fhold:'0',fbox:'400',ignore:'0',still:'0',kbps:'5',key:'10',skip:'0',codec:'-1',voice:'small',front:'0',
+var ids = ['plines','fps','size','colors','smooth','pal','thr','clean','round','join','view','lock','focus','fhold','fbox','ignore','still','kbps','key','skip','codec','voice','front','mic','src','rl','dn','st','rm','cp','ng','cl','tb','sens','hold'];
+var defaults = {plines:'1',fps:'2',size:'2',colors:'8',smooth:'2',pal:'0',thr:'16',clean:'1',round:'1',join:'1',view:'1',lock:'0',focus:'0',fhold:'0',fbox:'400',ignore:'0',still:'0',kbps:'5',key:'10',skip:'0',codec:'-1',voice:'small',front:'0',
   // Sound: Codec2 Recorder's defaults
   mic:'0',src:'6',rl:'auto',dn:'1',st:'0.18',rm:'180',cp:'3',ng:'12',cl:'6',tb:'1',sens:'5',hold:'1'};
 var rec = false, listKey = '', msgUntil = 0, renaming = null, renameText = null, confirmDel = null;
@@ -125,7 +126,7 @@ ids.forEach(function(id){ $(id).value = saved[id] != null ? saved[id] : defaults
 function push(){
   var s = {}; ids.forEach(function(id){ s[id] = $(id).value });
   try { localStorage.setItem('set', JSON.stringify(s)) } catch (e) {}
-  A.config(JSON.stringify({fps:+s.fps,size:+s.size,colors:+s.colors,smooth:+s.smooth,pal:+s.pal,thr:+s.thr,clean:+s.clean,round:+s.round,join:s.join==='1',view:s.view==='1',lock:s.lock==='1',focus:+s.focus,fhold:s.fhold==='1',fbox:+s.fbox,ignore:+s.ignore,still:+s.still,kbps:+s.kbps,key:+s.key,skip:s.skip==='1',codec:+s.codec,voice:s.voice,front:s.front==='1',
+  A.config(JSON.stringify({plines:+s.plines,fps:+s.fps,size:+s.size,colors:+s.colors,smooth:+s.smooth,pal:+s.pal,thr:+s.thr,clean:+s.clean,round:+s.round,join:s.join==='1',view:s.view==='1',lock:s.lock==='1',focus:+s.focus,fhold:s.fhold==='1',fbox:+s.fbox,ignore:+s.ignore,still:+s.still,kbps:+s.kbps,key:+s.key,skip:s.skip==='1',codec:+s.codec,voice:s.voice,front:s.front==='1',
     mic:+s.mic,src:+s.src,auto:s.rl==='auto',rl:s.rl==='auto'?12:+s.rl,dn:s.dn==='1',st:+s.st,rm:+s.rm,cp:+s.cp,ng:+s.ng,cl:+s.cl,tb:+s.tb,sens:+s.sens,hold:+s.hold}));
   $('vt').style.left = (20 - 1.8 * +s.sens) / 24 * 100 + '%'; $('vmrow').hidden = s.skip !== '1'; $('sens').disabled = $('hold').disabled = s.skip !== '1';
 }

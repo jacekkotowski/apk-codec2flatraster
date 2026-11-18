@@ -119,6 +119,13 @@ public class PuppetTest {
             }
             check(found == 7 && hi - lo < 2.5, "head moved by (" + (int) mv[0] + ", " + (int) mv[1] + ") and scaled " + mv[2] + ": the row across the top of the head stays straight and follows it (spread " + String.format("%.1f", hi - lo) + " pixels, " + found + " of 7 dots)");
         }
+        // the Puppet lines setting: none, mouth and eyes, all
+        float[] fc = realFace(80, 70), bd = {60, 105, 100, 105, 50, 112, 110, 112, 45, 118, 115, 118, 62, 119, 98, 119};
+        int[] grey = new int[w * h]; java.util.Arrays.fill(grey, 0xff808080);
+        int keep = PuppetDraw.lines; int[] cnt = new int[3];
+        for (int m = 0; m < 3; m++) { PuppetDraw.lines = m; int[] im = PuppetDraw.draw(grey, w, h, fc, bd); int c = 0; for (int yy = 8; yy < h - 8; yy++) for (int xx = 8; xx < w - 8; xx++) if (im[yy * w + xx] != 0xff808080) c++; cnt[m] = c; }
+        PuppetDraw.lines = keep;
+        check(cnt[0] == 0 && cnt[1] > 0 && cnt[2] > cnt[1], "lines setting: none draws nothing, mouth and eyes draws some, all draws more (" + cnt[0] + ", " + cnt[1] + ", " + cnt[2] + " pixels)");
         // short packets: times (absolute at key pictures, relative between), damage in the middle costs only the damaged packet
         boolean timesOk = true; long tPrev = 0; int idx = 0;
         for (FrvReader.Packet p : rd.packets) { if (p.type == FrvWriter.POINTS) { timesOk &= p.timeMs == idx * 500L; idx++; } }
