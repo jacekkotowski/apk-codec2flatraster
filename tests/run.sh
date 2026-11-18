@@ -2,6 +2,8 @@
 # Runs every FlatRaster test that works on a computer. Needs gcc, a JDK, python3 with numpy and opencv, node with Playwright.
 set -e
 cd "$(dirname "$0")"
+# every test keeps its temporary files (clips of 1.2 GB each) under one directory that is removed at the end, so repeated runs do not fill the disk
+export TMPDIR=$(mktemp -d); trap 'rm -rf "$TMPDIR"' EXIT
 T=$(mktemp -d)
 echo "== filter"; python3 flat_test.py 2>&1 | grep -vE "^Svt|^\[lib"
 echo "== repeating movement"; python3 motion_test.py 2>&1 | grep -vE "^Svt|^\[lib"

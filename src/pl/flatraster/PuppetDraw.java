@@ -5,14 +5,17 @@ package pl.flatraster;
  *  the picture gets an orange frame so nobody takes it for video of the person. */
 final class PuppetDraw {
     /** Points per object: the face subset (marks.FACE_IDX of tools/edge, 22 points of MediaPipe's face mesh) and eight BlazePose points (BODY_IDX). */
-    static final int FACE = 22, BODY = 8, UNITS = 160;   // UNITS: integer coordinate units across the picture width (PuppetEncoder)
+    static final int FACE = 30, BODY = 8, UNITS = 320;   // UNITS: integer coordinate units across the picture width (PuppetEncoder)
     /** BlazePose points kept for the body: shoulders 11, 12, elbows 13, 14, wrists 15, 16, hips 23, 24 (in this order, local numbers 0 to 7). */
     static final int[] BODY_IDX = {11, 12, 13, 14, 15, 16, 23, 24};
     static final int[] SIZES = {FACE, BODY};
     /** Face subset order: 0,1 left eye corners, 2,3 right eye corners, 4,5 left lids (upper, lower), 6,7 right lids, 8,9 left brow, 10,11 right brow,
-     *  12,13 mouth corners, 14,15 inner lips (upper, lower), 16,17 outer lips (upper, lower), 18 nose tip, 19 chin, 20,21 face sides. */
+     *  12,13 mouth corners, 14,15 inner lips (upper, lower), 16,17 outer lips (upper, lower), 18 nose tip, 19 chin, 20,21 face sides,
+     *  22,23 outer upper lip left and right of 16, 24,25 outer lower lip left and right of 17, 26,27 inner upper lip left and right of 14, 28,29 inner lower lip left and right of 15. */
     private static final int[][] FACE_LINES = {{0, 4}, {4, 1}, {1, 5}, {5, 0}, {2, 6}, {6, 3}, {3, 7}, {7, 2}, {8, 9}, {10, 11},
-            {12, 16}, {16, 13}, {13, 17}, {17, 12}, {14, 15}, {20, 19}, {19, 21}, {18, 18}};
+            {12, 22}, {22, 16}, {16, 23}, {23, 13}, {13, 25}, {25, 17}, {17, 24}, {24, 12},      // outer lips
+            {12, 26}, {26, 14}, {14, 27}, {27, 13}, {13, 29}, {29, 15}, {15, 28}, {28, 12},       // inner lips: the opening
+            {20, 19}, {19, 21}, {18, 18}};
     private static final int[][] BODY_LINES = {{0, 1}, {0, 2}, {2, 4}, {1, 3}, {3, 5}, {0, 6}, {1, 7}, {6, 7}};   // shoulders, arms, torso (local numbers)
     static final int WHITE = 0xffffffff, ORANGE = 0xffff8c00, INK = 0xff101010, BODYC = 0xff1060d0;
 
@@ -66,6 +69,7 @@ final class PuppetDraw {
     static int[] warp(int[] base, int w, int h, float[] refFace, float[] refBody, float[] curFace, float[] curBody) {
         java.util.ArrayList<float[]> cur = new java.util.ArrayList<>(), ref = new java.util.ArrayList<>();
         addPairs(cur, ref, curFace, refFace); addPairs(cur, ref, curBody, refBody);
+        headAnchors(cur, ref, refFace, curFace);
         if (cur.size() < 3) return base;
         float sc = w / 160f;                                            // the spline works in units of a 160 pixel wide picture
         int[][] anchors = {{0, 0}, {w / 2, 0}, {w - 1, 0}, {0, h / 2}, {w - 1, h / 2}, {0, h - 1}, {w / 2, h - 1}, {w - 1, h - 1}};
@@ -109,6 +113,33 @@ final class PuppetDraw {
             o[y * w + x] = base[sy * w + sx];
         }
         return o;
+    }
+
+    /** Nothing in the face points holds the forehead and the hair, so a spline alone bends them (the owner saw the top of the face go concave). Anchors
+     *  above the face, placed in the key's face and carried to the present by the similarity (shift, turn, scale) that best maps the key's face points
+     *  onto the present ones: the top of the head then moves as one piece with the face. */
+    private static void headAnchors(java.util.List<float[]> cur, java.util.List<float[]> ref, float[] rf, float[] cf) {
+        if (rf == null || cf == null || rf.length != cf.length || rf.length < 44) return;
+        int n = rf.length / 2;
+        double rmx = 0, rmy = 0, cmx = 0, cmy = 0;
+        for (int i = 0; i < n; i++) { rmx += rf[2 * i]; rmy += rf[2 * i + 1]; cmx += cf[2 * i]; cmy += cf[2 * i + 1]; }
+        rmx /= n; rmy /= n; cmx /= n; cmy /= n;
+        double a = 0, b = 0, d = 0;                                       // z' = c + (a + bi)(z - r), least squares
+        for (int i = 0; i < n; i++) {
+            double zx = rf[2 * i] - rmx, zy = rf[2 * i + 1] - rmy, wx = cf[2 * i] - cmx, wy = cf[2 * i + 1] - cmy;
+            a += zx * wx + zy * wy; b += zx * wy - zy * wx; d += zx * zx + zy * zy;
+        }
+        if (d < 1e-6) return;
+        a /= d; b /= d;
+        double bx = (rf[16] + rf[18] + rf[20] + rf[22]) / 4, by = (rf[17] + rf[19] + rf[21] + rf[23]) / 4;     // between the brows (subset points 8 to 11)
+        double ux = bx - rf[38], uy = by - rf[39];                       // from the chin (19) up to the brows
+        double[][] v = {{bx + 0.5 * ux, by + 0.5 * uy}, {bx + 1.1 * ux, by + 1.1 * uy},
+                {rf[40] + 0.5 * ux, rf[41] + 0.5 * uy}, {rf[42] + 0.5 * ux, rf[43] + 0.5 * uy}};              // and above the two sides of the face (20, 21)
+        for (double[] p : v) {
+            double zx = p[0] - rmx, zy = p[1] - rmy;
+            cur.add(new float[]{(float) (cmx + a * zx - b * zy), (float) (cmy + b * zx + a * zy)});
+            ref.add(new float[]{(float) p[0], (float) p[1]});
+        }
     }
 
     private static void addPairs(java.util.List<float[]> cur, java.util.List<float[]> ref, float[] c, float[] r) {

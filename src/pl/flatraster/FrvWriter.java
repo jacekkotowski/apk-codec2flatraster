@@ -13,7 +13,8 @@ import java.io.OutputStream;
  * Version 4 (Exact and Puppet files from 0.20) has short packets: see writeShort. Versions 2 and 3 have the long packet below.
  * Header, 14 bytes: "FRV1", version (2, or 3 or 4 when the video codec is 3, Exact: each KEY/DELTA packet then holds one picture of jni/flatcode.c, see tools/coder/flatcoder.py for its layout), video codec (0 H.264, 1 HEVC, 2 AV1, 3 Exact), width (2), height (2), DRED bitstream version, DRED level q, CRC16 (2).
  * Version 1 (up to 0.12) had Codec 2 voice: byte 10 was the Codec 2 mode, byte 11 was 0.
- * Codec 4, Puppet (also version 3): a KEY packet holds one picture of the Exact coder (key pictures only, the background; the person is
+ * Codec 5, Puppet (codec 4 was the first layout, 0.19 to 0.25: 22 face points and 8 body points at 1/160 of the width; refused now). Layout of 5: 30 face points
+ * (the 22 below plus 8 lip points: mesh 37, 267, 84, 314, 82, 312, 87, 317) and 8 body points, units of width/320. Codec 5 (also version 4): a KEY packet holds one picture of the Exact coder (key pictures only, the background; the person is
  * still in it and is drawn faded); a POINTS packet (type 5, one per picture time, right after the KEY packet when both have the same time) holds the
  * landmarks of face (22 points, tools/edge/marks.py FACE_IDX) and upper body (BlazePose points 0 to 24) coded by jni/motion.c; points are integer units of
  * width/320 of the picture, y in the same unit. The point coder restarts at every KEY packet (PuppetEncoder).
@@ -25,9 +26,9 @@ final class FrvWriter implements Closeable {
     static final int VERSION = 2, VERSION_EXACT = 3, VERSION_SHORT = 4, HEADER = 14, OVERHEAD = 12;   // 3: Exact files of 0.18 and Puppet files of 0.19 (long packets); 4: codecs 3 and 4 with short packets
     static final int SYNC0 = 0xF5, SYNC1 = 0x7A;
     static final int CONFIG = 1, KEY = 2, DELTA = 3, AUDIO = 4, POINTS = 5;
-    static final int AVC = 0, HEVC = 1, AV1 = 2, EXACT = 3, PUPPET = 4; // EXACT: the posterized picture coded by Exact (jni/flatcode.c), no phone video codec; file version 3
+    static final int AVC = 0, HEVC = 1, AV1 = 2, EXACT = 3, OLD_PUPPET = 4, PUPPET = 5; // EXACT: the posterized picture coded by Exact (jni/flatcode.c), no phone video codec; file version 3
     static final String[] MIME = {"video/avc", "video/hevc", "video/av01"};
-    static final String[] CODEC_NAME = {"H.264", "HEVC", "AV1", "Exact", "Puppet"};
+    static final String[] CODEC_NAME = {"H.264", "HEVC", "AV1", "Exact", "Puppet (old)", "Puppet"};
 
     private final OutputStream out;
     private final boolean shortPackets;

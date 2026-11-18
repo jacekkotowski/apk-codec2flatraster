@@ -20,8 +20,8 @@ public class PuppetTest {
         FrvWriter wr = new FrvWriter(bo, FrvWriter.PUPPET, w, h, FrvReader.BITSTREAM, 9);
         Exact ex = new Exact(w, h); Points enc = new Points(PuppetDraw.SIZES);
         Random rnd = new Random(2);
-        float[][] pos = {new float[44], new float[16]};
-        for (int i = 0; i < 22; i++) { pos[0][2 * i] = 70 + 3 * (i % 6); pos[0][2 * i + 1] = 40 + 3 * (i / 6); }
+        float[][] pos = {new float[60], new float[16]};
+        for (int i = 0; i < 30; i++) { pos[0][2 * i] = 70 + 3 * (i % 6); pos[0][2 * i + 1] = 40 + 3 * (i / 6); }
         for (int i = 0; i < 8; i++) { pos[1][2 * i] = 60 + 6 * (i % 4); pos[1][2 * i + 1] = 60 + 8 * (i / 4); }
         List<int[]> units = new ArrayList<>(); List<int[]> present = new ArrayList<>();
         int pointBytes = 0, keys = 0;
@@ -34,7 +34,7 @@ public class PuppetTest {
             if (t % 20 == 0) { Exact.Coded c = ex.encode(flat, true); wr.write(FrvWriter.KEY, tm, c.data, 0, c.data.length); enc.reset(); keys++; }
             for (float[] o : pos) for (int i = 0; i < o.length; i++) o[i] += (float) rnd.nextGaussian() * 0.5f;
             int[] pr = {t % 17 == 5 ? 0 : 1, 1};                       // the face is lost now and then
-            int[] un = new int[60]; int k = 0;
+            int[] un = new int[76]; int k = 0;
             for (int o = 0; o < 2; o++) if (pr[o] == 1) for (int i = 0; i < pos[o].length; i++) un[k++] = Math.max(0, Math.min(1023, (int) Math.rint(pos[o][i] * PuppetDraw.UNITS / w)));
             byte[] b = enc.encode(pr, java.util.Arrays.copyOf(un, Math.max(2, k)));
             if (b == null) check(false, "frame " + t + " points coded");
@@ -53,7 +53,7 @@ public class PuppetTest {
             int[] pr = new int[2], un = new int[pd.points * 2];
             boolean ok = pd.decode(p.data, pr, un);
             allSame &= ok && java.util.Arrays.equals(pr, present.get(t)) && java.util.Arrays.equals(java.util.Arrays.copyOf(un, units.get(t).length), units.get(t));
-            float[] face = PuppetDraw.unitsToPixels(un, 0, 22, pr[0] != 0, w), body = PuppetDraw.unitsToPixels(un, pr[0] != 0 ? 22 : 0, 8, pr[1] != 0, w);
+            float[] face = PuppetDraw.unitsToPixels(un, 0, 30, pr[0] != 0, w), body = PuppetDraw.unitsToPixels(un, pr[0] != 0 ? 30 : 0, 8, pr[1] != 0, w);
             int[] img = PuppetDraw.draw(px, w, h, face, body);
             drawn &= img.length == w * h && img[0] == PuppetDraw.ORANGE && !java.util.Arrays.equals(img, px);
             shown++;
@@ -62,7 +62,7 @@ public class PuppetTest {
         check(allSame, "decoded points identical to the encoded ones, objects that vanish included");
         check(drawn, "the drawing has the orange puppet frame and differs from the key picture");
         // two small checks of the drawing: points far outside the picture do not crash it; a missing object leaves just the key picture
-        PuppetDraw.draw(null, w, h, new float[44], new float[]{-500, 900, 3000, -20, 1e9f, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0});
+        PuppetDraw.draw(null, w, h, new float[60], new float[]{-500, 900, 3000, -20, 1e9f, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0});
         check(true, "points outside the picture are clipped");
         // the person cut-out: the background becomes a coarse colour map, the person keeps the filter's colours
         byte[] mask = new byte[w * h];
@@ -83,8 +83,8 @@ public class PuppetTest {
         // the limited warp: a dot at the face moves with the points, a dot far away stays, no movement leaves the picture as it was
         int[] key = new int[w * h]; java.util.Arrays.fill(key, 0xff202020);
         for (int yy = 0; yy < 5; yy++) for (int xx = 0; xx < 5; xx++) { key[(48 + yy) * w + 78 + xx] = 0xffffffff; key[(100 + yy) * w + 8 + xx] = 0xffffffff; }
-        float[] f0 = new float[44]; for (int i = 0; i < 22; i++) { f0[2 * i] = 70 + 3 * (i % 6); f0[2 * i + 1] = 40 + 3 * (i / 6); }
-        float[] f1 = f0.clone(); for (int i = 0; i < 22; i++) f1[2 * i] += 6;
+        float[] f0 = new float[60]; for (int i = 0; i < 30; i++) { f0[2 * i] = 70 + 3 * (i % 6); f0[2 * i + 1] = 40 + 3 * (i / 6); }
+        float[] f1 = f0.clone(); for (int i = 0; i < 30; i++) f1[2 * i] += 6;
         int[] same = PuppetDraw.warp(key, w, h, f0, null, f0, null);
         check(java.util.Arrays.equals(same, key), "warp: no movement leaves the picture as it was");
         int[] moved = PuppetDraw.warp(key, w, h, f0, null, f1, null);
@@ -92,7 +92,7 @@ public class PuppetTest {
         for (int yy = 0; yy < h; yy++) for (int xx = 0; xx < w; xx++) if ((moved[yy * w + xx] & 255) > 200) { if (xx > 40) { sx += xx; sn++; } else { bx += xx; bn++; } }
         check(sn > 10 && Math.abs(sx / sn - (80 + 6)) < 2.5, "warp: the dot at the face moved with the points (" + (sn > 0 ? String.format("%.1f", sx / sn) : "lost") + " against 86)");
         check(bn > 10 && Math.abs(bx / bn - 10) < 0.6, "warp: a dot far from the person stays where it was");
-        float[] f2 = f0.clone(); for (int i = 0; i < 22; i++) f2[2 * i] += 80;
+        float[] f2 = f0.clone(); for (int i = 0; i < 30; i++) f2[2 * i] += 80;
         int[] far = PuppetDraw.warp(key, w, h, f0, null, f2, null); double fx = 0, fn = 0;
         for (int yy = 0; yy < h; yy++) for (int xx = 0; xx < w; xx++) if ((far[yy * w + xx] & 255) > 200 && xx > 40) { fx += xx; fn++; }
         check(fn == 0 || Math.abs(fx / fn - 80) < 25, "warp: a huge movement is limited, not followed all the way");
