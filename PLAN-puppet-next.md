@@ -15,13 +15,13 @@ Video format **Puppet** (`.frv` version 4, codec 5):
 
 Where bytes go: background and face only in key pictures; anything that moves between keys is free if driven by data already sent.
 
-1. **Background follows the camera** (cheapest, probably most visible). One global shift (dx, dy) per picture from camera motion (2 to 3 bytes; estimate it on the sender from the camera frames, the filter already tracks the face, `flat_track` in `jni/flat.c` is a model). The player shifts the background (not the person) by it. Hand-held phones otherwise leave a frozen background.
-2. **Cross-fade between key pictures** on playback: free, replaces the jump every few seconds by a smooth change. Needs the player to know the next key (it has the whole file).
+1. **[DONE in 0.29]** **Background follows the camera** (cheapest, probably most visible). One global shift (dx, dy) per picture from camera motion (2 to 3 bytes; estimate it on the sender from the camera frames, the filter already tracks the face, `flat_track` in `jni/flat.c` is a model). The player shifts the background (not the person) by it. Hand-held phones otherwise leave a frozen background.
+2. **[DONE in 0.29]** **Cross-fade between key pictures** on playback: free, replaces the jump every few seconds by a smooth change. Needs the player to know the next key (it has the whole file).
 3. **Vector shapes for the background**: trace the label map into flat-colour polygons (contour tracing, Douglas-Peucker simplification), draw them at any size (crisp, no blocks). Guess 300 to 900 bytes against about 100 to 200 for the coarse blocks: **measure first** (`tools/coder/` has the rig: compare bytes and look against the coarse blocks at equal legibility; keep it only if it looks clearly better for the bytes). Animated variant: tween shapes between keys (free).
 4. **Vector face** (skin, hair, eyes, mouth as shapes driven by the same points): crisp but more cartoon-like and less recognisable than the warped real picture; only if the raster face stays unsatisfying. Must be derived from the real picture (the project rule: invent nothing).
 5. **Lips**: if still weak after 0.26 on the phone: exaggerate the mouth opening in the drawing (it is real but small at 160 x 120), a bigger picture size, or a smaller quantisation step; check with the owner's `.frv` (parse POINTS sizes).
 6. **Face patch**: a small key of the face box (about 150 bytes) when the expression or pose has changed a lot since the key, so the face does not go stale between keys (the research patch code is `tools/edge/patch.py`).
-7. **Smoothing between pictures** on playback (interpolate the points to 10 to 15 frames a second from 2 to 4 recorded): free in bytes; needs the player to look ahead one picture (it has the file).
+7. **[DONE in 0.29]** **Smoothing between pictures** on playback (interpolate the points to 10 to 15 frames a second from 2 to 4 recorded): free in bytes; needs the player to look ahead one picture (it has the file).
 8. **Radio**: sending the `.frv` over the recorder's modem (`PLAN-radio.md`, `Fountain`, `RadioLink`), SAVE MP4 for Exact and Puppet files, both not done. The owner's size target: about 7 kB for 30 s with voice (DATAC1 in about 2 minutes); a recording of 25 s was 9.1 kB with keys every 5 s.
 
 ## 3. Open questions for the owner

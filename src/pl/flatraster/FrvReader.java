@@ -29,7 +29,7 @@ final class FrvReader {
         codec = b[5] & 255; width = (b[6] & 255) << 8 | (b[7] & 255); height = (b[8] & 255) << 8 | (b[9] & 255); bitstream = b[10] & 255; q = b[11] & 255;
         if (bitstream != BITSTREAM) throw new IOException("its voice was made by a different version of DRED (" + bitstream + "), which this version can't play");
         if (codec > FrvWriter.PUPPET || (b[4] >= FrvWriter.VERSION_EXACT) != (codec >= FrvWriter.EXACT)) throw new IOException("unknown video format");
-        if (codec == FrvWriter.OLD_PUPPET) throw new IOException("a Puppet recording made by version 0.25 or older, whose points this version can't read");
+        if (codec == FrvWriter.OLD_PUPPET || codec == FrvWriter.OLD_PUPPET2) throw new IOException("a Puppet recording made by version 0.28 or older, whose points this version can't read");
         if (codec == FrvWriter.PUPPET && b[4] == FrvWriter.VERSION_EXACT) throw new IOException("a Puppet recording made by version 0.19, whose points this version can't read");
         if (b[4] == FrvWriter.VERSION_SHORT) { readShort(b); return; }
         int o = FrvWriter.HEADER;

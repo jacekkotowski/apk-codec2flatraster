@@ -55,14 +55,12 @@ final class Player {
     private void play(File file, View view) throws Exception {
         FrvReader r = new FrvReader(file);
         durationMs = r.durationMs();
-        MediaCodec dec = null; Thread audio = null; Exact exact = null; int[] exactPx = null; Points pts = null; boolean puppetBase = false; float[] refFace = null, refBody = null;
+        MediaCodec dec = null; Thread audio = null; Exact exact = null; int[] exactPx = null; PuppetPlayback pb = null; long nextFrameMs = 0;
         try {
             boolean hasVideo = false, hasAudio = false;
             for (FrvReader.Packet p : r.packets) { hasVideo |= p.type == FrvWriter.KEY; hasAudio |= p.type == FrvWriter.AUDIO; }
-            if (hasVideo && r.codec >= FrvWriter.EXACT) {
-                exact = new Exact(r.width, r.height); exactPx = new int[r.width * r.height];
-                if (r.codec == FrvWriter.PUPPET) pts = new Points(PuppetDraw.SIZES);
-            }
+            if (hasVideo && r.codec == FrvWriter.PUPPET) pb = new PuppetPlayback(r);       // decodes the whole file; frames are made by time below
+            else if (hasVideo && r.codec >= FrvWriter.EXACT) { exact = new Exact(r.width, r.height); exactPx = new int[r.width * r.height]; }
             else if (hasVideo) {
                 MediaFormat f = videoFormat(r);
                 f.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible);
@@ -82,23 +80,14 @@ final class Player {
                     long now = (System.nanoTime() - t0) / 1_000_000;
                     positionMs = Math.min(now, durationMs);
                     if (dec != null) show(dec, info, view, r, 0);
+                    if (pb != null && now >= nextFrameMs) { nextFrameMs = puppetTick(pb, view, r, now); }
                     if (now >= p.timeMs) break;
                     Thread.sleep(Math.min(20, p.timeMs - now));
                 }
                 if (!running) return;
                 if (p.type == FrvWriter.AUDIO) continue;
-                if (pts != null && (p.type == FrvWriter.KEY || p.type == FrvWriter.POINTS)) {   // the puppet stream
-                    if (p.type == FrvWriter.KEY) { if (exact.decode(FrvWriter.KEY, p.data, exactPx)) { gotKey = puppetBase = true; pts.reset(); refFace = refBody = null; } }
-                    else if (puppetBase) {
-                        int[] present = new int[PuppetDraw.SIZES.length], units = new int[pts.points * 2];
-                        if (pts.decode(p.data, present, units)) {
-                            float[] face = PuppetDraw.unitsToPixels(units, 0, PuppetDraw.SIZES[0], present[0] != 0, r.width),
-                                    body = PuppetDraw.unitsToPixels(units, present[0] != 0 ? PuppetDraw.SIZES[0] : 0, PuppetDraw.SIZES[1], present[1] != 0, r.width);
-                            if (refFace == null) refFace = face;          // the points the key picture had: the first ones after it, per object
-                            if (refBody == null) refBody = body;
-                            view.picture(PuppetDraw.draw(PuppetDraw.warp(exactPx, r.width, r.height, refFace, refBody, face, body), r.width, r.height, face, body), r.width, r.height, 0);
-                        }
-                    }
+                if (pb != null && (p.type == FrvWriter.KEY || p.type == FrvWriter.POINTS)) {
+                    // nothing to do here: the pictures of a Puppet recording are made by time, between and across these packets (see puppetTick)
                 } else if ((p.type == FrvWriter.KEY || p.type == FrvWriter.DELTA) && exact != null) {
                     if (p.type == FrvWriter.KEY) gotKey = true;
                     if (gotKey && exact.decode(p.type, p.data, exactPx)) view.picture(exactPx.clone(), r.width, r.height, 0); // a damaged picture is skipped; the next good key picture repairs it
@@ -113,16 +102,23 @@ final class Player {
                     show(dec, info, view, r, 150_000);
                 }
             }
-            for (int i = 0; i < 25 && running; i++) { if (dec != null) show(dec, info, view, r, 0); Thread.sleep(20); }
+            for (int i = 0; i < 25 && running; i++) { if (dec != null) show(dec, info, view, r, 0); if (pb != null) { long nw = (System.nanoTime() - t0) / 1_000_000; if (nw >= nextFrameMs) nextFrameMs = puppetTick(pb, view, r, nw); } Thread.sleep(20); }
             if (audio != null) audio.join(); // the last block of sound ends up to a second after the last packet time
             positionMs = durationMs;
         } catch (InterruptedException ignored) {
         } finally {
             if (exact != null) exact.close();
-            if (pts != null) pts.close();
+            if (pb != null) pb.close();
             if (dec != null) { try { dec.stop(); } catch (Exception ignored) {} dec.release(); }
             if (audio != null) { soundStop = true; audio.interrupt(); try { audio.join(2000); } catch (InterruptedException ignored) {} }
         }
+    }
+
+    /** Shows the Puppet picture for this moment and returns when the next one is due (12 a second). */
+    private long puppetTick(PuppetPlayback pb, View view, FrvReader r, long nowMs) {
+        int[] f = pb.frameAt(nowMs);
+        if (f != null) view.picture(f, r.width, r.height, 0);
+        return nowMs + 1000 / PuppetPlayback.FPS;
     }
 
     /** Plays the voice: silence for the gaps, each block decoded as it is needed. A block decodes in about 30 ms on a computer. */

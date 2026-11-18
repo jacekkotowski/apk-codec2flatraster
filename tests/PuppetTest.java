@@ -40,9 +40,10 @@ public class PuppetTest {
             long tm = t * 500L;
             if (t % 20 == 0) { Exact.Coded c = ex.encode(flat, true); wr.write(FrvWriter.KEY, tm, c.data, 0, c.data.length); enc.reset(); keys++; }
             for (float[] o : pos) for (int i = 0; i < o.length; i++) o[i] += (float) rnd.nextGaussian() * 0.5f;
-            int[] pr = {t % 17 == 5 ? 0 : 1, 1};                       // the face is lost now and then
-            int[] un = new int[76]; int k = 0;
+            int[] pr = {t % 17 == 5 ? 0 : 1, 1, 1};                    // the face is lost now and then
+            int[] un = new int[78]; int k = 0;
             for (int o = 0; o < 2; o++) if (pr[o] == 1) for (int i = 0; i < pos[o].length; i++) un[k++] = Math.max(0, Math.min(1023, (int) Math.rint(pos[o][i] * PuppetDraw.UNITS / w)));
+            un[k++] = 512 + (int) Math.round(20 * Math.sin(t / 7.0)); un[k++] = 512 - (int) Math.round(12 * Math.sin(t / 5.0));   // the background shift (units)
             byte[] b = enc.encode(pr, java.util.Arrays.copyOf(un, Math.max(2, k)));
             if (b == null) check(false, "frame " + t + " points coded");
             wr.write(FrvWriter.POINTS, tm, b, 0, b.length); pointBytes += b.length;
@@ -57,7 +58,7 @@ public class PuppetTest {
         for (FrvReader.Packet p : rd.packets) {
             if (p.type == FrvWriter.KEY) { have = dec.decode(FrvWriter.KEY, p.data, px); pd.reset(); continue; }
             t++;
-            int[] pr = new int[2], un = new int[pd.points * 2];
+            int[] pr = new int[3], un = new int[pd.points * 2];
             boolean ok = pd.decode(p.data, pr, un);
             allSame &= ok && java.util.Arrays.equals(pr, present.get(t)) && java.util.Arrays.equals(java.util.Arrays.copyOf(un, units.get(t).length), units.get(t));
             float[] face = PuppetDraw.unitsToPixels(un, 0, 30, pr[0] != 0, w), body = PuppetDraw.unitsToPixels(un, pr[0] != 0 ? 30 : 0, 8, pr[1] != 0, w);
@@ -71,6 +72,29 @@ public class PuppetTest {
         // two small checks of the drawing: points far outside the picture do not crash it; a missing object leaves just the key picture
         PuppetDraw.draw(null, w, h, new float[60], new float[]{-500, 900, 3000, -20, 1e9f, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0});
         check(true, "points outside the picture are clipped");
+        // the background shift estimator: a shifted textured picture with a person who moves differently
+        {
+            int gw = 80, gh = 60; java.util.Random rr = new java.util.Random(4);
+            byte[] key = new byte[gw * gh], cur = new byte[gw * gh]; int[] big = new int[gw * gh];
+            for (int i = 0; i < gw * gh; i++) big[i] = rr.nextInt(256);
+            for (int y = 0; y < gh; y++) for (int x = 0; x < gw; x++) { int s = 0; for (int dy = -1; dy <= 1; dy++) for (int dx = -1; dx <= 1; dx++) s += big[Math.max(0, Math.min(gh - 1, y + dy)) * gw + Math.max(0, Math.min(gw - 1, x + dx))]; key[y * gw + x] = (byte) (s / 9); }
+            for (int y = 0; y < gh; y++) for (int x = 0; x < gw; x++) cur[y * gw + x] = key[Math.max(0, Math.min(gh - 1, y + 2)) * gw + Math.max(0, Math.min(gw - 1, x - 3))];   // content moved by (3, -2)
+            for (int y = 20; y < 45; y++) for (int x = 30; x < 55; x++) cur[y * gw + x] = (byte) rr.nextInt(256);                                                   // the person, different
+            float[] est = ShiftEstimator.estimate(key, cur, gw, gh, new int[]{26, 16, 60, 50}, 10);
+            check(Math.abs(est[0] - 3) < 0.7 && Math.abs(est[1] + 2) < 0.7, "background shift found (" + String.format("%.1f, %.1f", est[0], est[1]) + " against 3, -2) with the person left out");
+            float[] still = ShiftEstimator.estimate(key, key.clone(), gw, gh, null, 10);
+            check(still[0] == 0 && still[1] == 0, "no camera movement: shift is exactly zero");
+            byte[] plainGrey = new byte[gw * gh]; java.util.Arrays.fill(plainGrey, (byte) 90);
+            float[] none = ShiftEstimator.estimate(plainGrey, plainGrey.clone(), gw, gh, null, 10);
+            check(none[0] == 0 && none[1] == 0, "a flat picture does not wander");
+            int[] dotp = new int[160 * 120]; dotp[50 * 160 + 70] = 0xffffffff;
+            int[] sh = PuppetDraw.shift(dotp, 160, 120, 5, 3); int at = -1; for (int i = 0; i < sh.length; i++) if (sh[i] == 0xffffffff) at = i;
+            check(at == 53 * 160 + 75, "the picture shifts by the given pixels (dot at " + (at % 160) + ", " + (at / 160) + " against 75, 53)");
+            float[] ref = realFace(80, 70), cr = ref.clone(); cr[2 * 14 + 1] -= 1; cr[2 * 15 + 1] += 1; cr[2 * 3] += 2;
+            float[] st = PuppetDraw.lipsStronger(ref, cr, 2f);
+            check(Math.abs((st[2 * 15 + 1] - st[2 * 14 + 1]) - (cr[2 * 15 + 1] - cr[2 * 14 + 1]) * 2 - (ref[2 * 15 + 1] - ref[2 * 14 + 1]) * (1 - 2)) < 0.01 && st[2 * 3] == cr[2 * 3], "lip gain: the mouth opening is doubled, other points stay");
+            check(PuppetDraw.lipsStronger(ref, cr, 1f) == cr, "lip gain 1 leaves the points as recorded");
+        }
         // the person cut-out: the background becomes a coarse colour map, the person keeps the filter's colours
         byte[] mask = new byte[w * h];
         for (int yy = 0; yy < h; yy++) for (int xx = 0; xx < w; xx++) { double dx = (xx - 80) / 30.0, dy = (yy - 60) / 40.0; mask[yy * w + xx] = (byte) (dx * dx + dy * dy < 1 ? 1 : 0); }
@@ -126,6 +150,17 @@ public class PuppetTest {
         for (int m = 0; m < 3; m++) { PuppetDraw.lines = m; int[] im = PuppetDraw.draw(grey, w, h, fc, bd); int c = 0; for (int yy = 8; yy < h - 8; yy++) for (int xx = 8; xx < w - 8; xx++) if (im[yy * w + xx] != 0xff808080) c++; cnt[m] = c; }
         PuppetDraw.lines = keep;
         check(cnt[0] == 0 && cnt[1] > 0 && cnt[2] > cnt[1], "lines setting: none draws nothing, mouth and eyes draws some, all draws more (" + cnt[0] + ", " + cnt[1] + ", " + cnt[2] + " pixels)");
+        // playback by time: interpolated frames, no jump at a key picture, the cross-fade
+        {
+            PuppetPlayback pb = new PuppetPlayback(rd);
+            int[] pf0 = pb.frameAt(0), f250 = pb.frameAt(250), f500 = pb.frameAt(500);
+            check(pf0 != null && pb.frameAt(-5) == null, "playback: a picture from the first key on, none before");
+            check(!java.util.Arrays.equals(f250, pf0) && !java.util.Arrays.equals(f250, f500), "playback: a frame between two recorded pictures is its own (interpolated)");
+            int[] before = pb.frameAt(9999), after = pb.frameAt(10000); long diff = 0; for (int i = 0; i < before.length; i++) diff += Math.abs((before[i] & 255) - (after[i] & 255));
+            check(diff / (double) before.length < 8, "playback: no jump at the second key picture (mean difference " + String.format("%.1f", diff / (double) before.length) + " of 255)");
+            check(PuppetPlayback.mix(0xff000000, 0xffffffff, 128) == 0xff7f7f7f && PuppetPlayback.mix(0xff102030, 0xff506070, 0) == 0xff102030, "cross-fade mixes the two pictures");
+            pb.close();
+        }
         // short packets: times (absolute at key pictures, relative between), damage in the middle costs only the damaged packet
         boolean timesOk = true; long tPrev = 0; int idx = 0;
         for (FrvReader.Packet p : rd.packets) { if (p.type == FrvWriter.POINTS) { timesOk &= p.timeMs == idx * 500L; idx++; } }

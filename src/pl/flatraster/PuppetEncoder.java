@@ -19,6 +19,7 @@ final class PuppetEncoder implements PictureEncoder, CameraAware {
     private boolean forceKey = true;
     private Landmarks.Result last = new Landmarks.Result();
     private int pointsBytes, keyBytes, pictures;
+    private byte[] keyGrey; private int keyGw, keyGh; private int[] keyBox;      // the key frame's grey picture and the person's box in it (grey pixels), for the background shift
     private volatile String keyNote = "no key picture yet", pointsNote = "no frame yet";
 
     PuppetEncoder(Context ctx, long flat, int w, int h, int keySeconds, PictureEncoder.Sink sink) {
@@ -49,16 +50,37 @@ final class PuppetEncoder implements PictureEncoder, CameraAware {
             sink.video(FrvWriter.KEY, timeMs, c.data);
             keyBytes += c.data.length; lastKeyMs = timeMs; forceKey = false;
             points.reset();
+            keyGrey = last.grey; keyGw = last.gw; keyGh = last.gh; keyBox = personBox(last, last.gw, last.gh);
         }
-        int[] present = {last.face != null ? 1 : 0, last.body != null ? 1 : 0};
-        int[] units = new int[PuppetDraw.SIZES[0] * 2 + PuppetDraw.SIZES[1] * 2];
+        int[] present = {last.face != null ? 1 : 0, last.body != null ? 1 : 0, 1};
+        int[] units = new int[PuppetDraw.SIZES[0] * 2 + PuppetDraw.SIZES[1] * 2 + PuppetDraw.SIZES[2] * 2];
         int u = 0;
         u = put(units, u, last.face);
         u = put(units, u, last.body);
+        float[] sh = backgroundShift();                                   // grey pixels the background moved since the key picture
+        units[u++] = PuppetDraw.CAM_ZERO + Math.max(-500, Math.min(500, Math.round(sh[0] * UNITS / Math.max(1, last.gw))));
+        units[u++] = PuppetDraw.CAM_ZERO + Math.max(-500, Math.min(500, Math.round(sh[1] * UNITS / Math.max(1, last.gw))));
         byte[] b = points.encode(present, units.length == 0 ? new int[2] : java.util.Arrays.copyOf(units, Math.max(2, u)));
         if (b == null) throw new java.io.IOException("the points could not be coded");
         sink.video(FrvWriter.POINTS, timeMs, b);
         pointsBytes += b.length; pictures++;
+    }
+
+    /** The person's box (grey pixels, widened by 20%) from the face and body points, or null if there are none. */
+    private static int[] personBox(Landmarks.Result r, int gw, int gh) {
+        float x0 = 9, y0 = 9, x1 = -9, y1 = -9;
+        for (float[] a : new float[][]{r.face, r.body}) if (a != null) for (int i = 0; i < a.length; i += 2) { x0 = Math.min(x0, a[i]); x1 = Math.max(x1, a[i]); y0 = Math.min(y0, a[i + 1]); y1 = Math.max(y1, a[i + 1]); }
+        if (x1 < x0) return null;
+        float mx = 0.2f * (x1 - x0), my = 0.2f * (y1 - y0);
+        return new int[]{Math.max(0, (int) ((x0 - mx) * gw)), Math.max(0, (int) ((y0 - my) * gh)), Math.min(gw, (int) Math.ceil((x1 + mx) * gw)), Math.min(gh, (int) Math.ceil((y1 + my) * gh))};
+    }
+
+    /** How far the background has moved since the key picture's frame, in grey pixels. */
+    private float[] backgroundShift() {
+        if (keyGrey == null || last.grey == null || last.gw != keyGw || last.gh != keyGh) return new float[]{0, 0};
+        int[] a = keyBox, b = personBox(last, last.gw, last.gh), box = a;
+        if (a != null && b != null) box = new int[]{Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])}; else if (b != null) box = b;
+        return ShiftEstimator.estimate(keyGrey, last.grey, last.gw, last.gh, box, 10);
     }
 
     /** The models' mask (mw x mh) at the picture's size, nearest pixel. */

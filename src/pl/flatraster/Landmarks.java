@@ -22,7 +22,7 @@ import java.util.List;
 final class Landmarks implements java.io.Closeable {
     /** The 30 points of MediaPipe's 478-point face mesh that are kept (tools/edge/marks.py FACE_IDX; the order PuppetDraw expects). */
     static final int[] FACE_IDX = {33, 133, 362, 263, 159, 145, 386, 374, 70, 105, 300, 334, 61, 291, 13, 14, 0, 17, 1, 152, 234, 454, 37, 267, 84, 314, 82, 312, 87, 317};
-    static final int SIZE = 320;           // long side of the frame given to the models
+    static final int SIZE = 320, GREY_W = 80;           // long side of the frame given to the models
     private final FaceLandmarker face;
     private final PoseLandmarker pose;
     private PoseLandmarker poseSeg;          // the same model with the person mask on, used only for a key picture, made when first needed
@@ -31,7 +31,7 @@ final class Landmarks implements java.io.Closeable {
     private byte[] rgba = new byte[0];
 
     /** Points of one frame in picture fractions (x, y in 0..1): face = 60 floats, body = 16 floats; null when not found. */
-    static final class Result { float[] face, body; byte[] mask; int mw, mh; /* person mask at the size given to the models: 1 = person */ String maskNote = "pose model gave no mask"; }
+    static final class Result { float[] face, body; byte[] mask; int mw, mh; /* person mask at the size given to the models: 1 = person */ String maskNote = "pose model gave no mask"; byte[] grey; int gw, gh; /* 80 wide grey picture of the frame (the background shift) */ }
 
     Landmarks(Context ctx) {
         this.ctx = ctx;
@@ -51,10 +51,12 @@ final class Landmarks implements java.io.Closeable {
         int ow = Math.max(2, Math.round(pw * s)), oh = Math.max(2, Math.round(ph * s));
         if (rgba.length != ow * oh * 4) rgba = new byte[ow * oh * 4];
         toRgba(img.getPlanes(), sw, sh, rotation, mirror, ow, oh, rgba);
+        byte[] grey = ShiftEstimator.grey(rgba, ow, oh, GREY_W, Math.max(2, GREY_W * oh / ow));
         ByteBuffer bb = ByteBuffer.allocateDirect(rgba.length); bb.put(rgba); bb.rewind();
         MPImage mp = new ByteBufferImageBuilder(bb, ow, oh, MPImage.IMAGE_FORMAT_RGBA).build();
         long ts = Math.max(lastTs + 1, timeMs); lastTs = ts;            // MediaPipe wants strictly increasing times
         Result r = new Result();
+        r.grey = grey; r.gw = GREY_W; r.gh = Math.max(2, GREY_W * oh / ow);
         FaceLandmarkerResult fr = face.detectForVideo(mp, ts);
         if (!fr.faceLandmarks().isEmpty()) {
             List<NormalizedLandmark> l = fr.faceLandmarks().get(0);

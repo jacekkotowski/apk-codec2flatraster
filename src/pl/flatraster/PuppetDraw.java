@@ -5,10 +5,10 @@ package pl.flatraster;
  *  the picture gets an orange frame so nobody takes it for video of the person. */
 final class PuppetDraw {
     /** Points per object: the face subset (marks.FACE_IDX of tools/edge, 22 points of MediaPipe's face mesh) and eight BlazePose points (BODY_IDX). */
-    static final int FACE = 30, BODY = 8, UNITS = 320;   // UNITS: integer coordinate units across the picture width (PuppetEncoder)
+    static final int FACE = 30, BODY = 8, CAM = 1, UNITS = 320, CAM_ZERO = 512;   // UNITS: integer coordinate units across the picture width (PuppetEncoder)
     /** BlazePose points kept for the body: shoulders 11, 12, elbows 13, 14, wrists 15, 16, hips 23, 24 (in this order, local numbers 0 to 7). */
     static final int[] BODY_IDX = {11, 12, 13, 14, 15, 16, 23, 24};
-    static final int[] SIZES = {FACE, BODY};
+    static final int[] SIZES = {FACE, BODY, CAM};   // the third object is one point: the background's shift since the key picture, (CAM_ZERO + sx, CAM_ZERO + sy) in units
     /** Face subset order: 0,1 left eye corners, 2,3 right eye corners, 4,5 left lids (upper, lower), 6,7 right lids, 8,9 left brow, 10,11 right brow,
      *  12,13 mouth corners, 14,15 inner lips (upper, lower), 16,17 outer lips (upper, lower), 18 nose tip, 19 chin, 20,21 face sides,
      *  22,23 outer upper lip left and right of 16, 24,25 outer lower lip left and right of 17, 26,27 inner upper lip left and right of 14, 28,29 inner lower lip left and right of 15. */
@@ -149,6 +149,30 @@ final class PuppetDraw {
             cur.add(new float[]{(float) (mx[0] * p[0] + mx[1] * p[1] + mx[2]), (float) (my[0] * p[0] + my[1] * p[1] + my[2])});
             ref.add(new float[]{(float) p[0], (float) p[1]});
         }
+    }
+
+    // ---- background shift, lip gain --------------------------------------------------------------------------------------------------------
+
+    /** The picture moved by (sx, sy) pixels (content at (x, y) appears at (x + sx, y + sy)); the edges repeat. */
+    static int[] shift(int[] base, int w, int h, float sx, float sy) {
+        if (Math.abs(sx) < 0.05f && Math.abs(sy) < 0.05f) return base;
+        int[] o = new int[w * h];
+        for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) o[y * w + x] = base[Math.max(0, Math.min(h - 1, Math.round(y - sy))) * w + Math.max(0, Math.min(w - 1, Math.round(x - sx)))];
+        return o;
+    }
+
+    /** Lip points that are exaggerated (face subset numbers: mouth corners 12, 13, inner lips 14, 15, outer lips 16, 17, extra lip points 22 to 29). */
+    static final int[] LIPS = {12, 13, 14, 15, 16, 17, 22, 23, 24, 25, 26, 27, 28, 29};
+    /** How much the mouth movement is exaggerated when playing (the Lip movement setting): 1 as recorded. The movement is real but small at 160 x 120. */
+    static volatile float lipGain = 1.6f;
+
+    /** The face points with the lips' movement since the key picture multiplied: up and down by `gain`, sideways by half as much extra. */
+    static float[] lipsStronger(float[] ref, float[] cur, float gain) {
+        if (cur == null || ref == null || ref.length != cur.length || gain == 1f) return cur;
+        float[] o = cur.clone();
+        float gx = 1 + 0.5f * (gain - 1);
+        for (int i : LIPS) { o[2 * i] = ref[2 * i] + gx * (cur[2 * i] - ref[2 * i]); o[2 * i + 1] = ref[2 * i + 1] + gain * (cur[2 * i + 1] - ref[2 * i + 1]); }
+        return o;
     }
 
     private static void addPairs(java.util.List<float[]> cur, java.util.List<float[]> ref, float[] c, float[] r) {
