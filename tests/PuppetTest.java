@@ -12,6 +12,13 @@ public class PuppetTest {
     static int fails;
     static void check(boolean ok, String what) { System.out.println((ok ? "ok   " : "FAIL ") + what); if (!ok) fails++; }
 
+    /** 30 face points laid out like a face centred at (cx, cy): the order of PuppetDraw (eyes, lids, brows, mouth, nose, chin, sides, extra lip points). */
+    static float[] realFace(float cx, float cy) {
+        float[][] q = {{-14, -8}, {-6, -8}, {6, -8}, {14, -8}, {-10, -10}, {-10, -6}, {10, -10}, {10, -6}, {-14, -12}, {-6, -13}, {6, -13}, {14, -12},
+                {-8, 10}, {8, 10}, {0, 9}, {0, 12}, {0, 8}, {0, 14}, {0, 0}, {0, 30}, {-22, -2}, {22, -2}, {-4, 8}, {4, 8}, {-4, 14}, {4, 14}, {-4, 9}, {4, 9}, {-4, 12}, {4, 12}};
+        float[] f = new float[60]; for (int i = 0; i < 30; i++) { f[2 * i] = cx + q[i][0]; f[2 * i + 1] = cy + q[i][1]; } return f;
+    }
+
     public static void main(String[] a) throws Exception {
         final int w = 160, h = 120, n = 60;
         long flat = Flat.create(w, h, 8);
@@ -96,6 +103,22 @@ public class PuppetTest {
         int[] far = PuppetDraw.warp(key, w, h, f0, null, f2, null); double fx = 0, fn = 0;
         for (int yy = 0; yy < h; yy++) for (int xx = 0; xx < w; xx++) if ((far[yy * w + xx] & 255) > 200 && xx > 40) { fx += xx; fn++; }
         check(fn == 0 || Math.abs(fx / fn - 80) < 25, "warp: a huge movement is limited, not followed all the way");
+        // raising the head: a row of dots across the top of the head must stay a straight row (the owner saw the top turn into a heart-shaped dent).
+        // A face laid out like a real one (160 x 120 picture): sides at x 58 and 102, brows at y 58, eyes 62, nose 70, mouth 80, chin 100; hair above y 23.
+        float[] face0 = realFace(80, 70);
+        for (float[] mv : new float[][]{{0, -8, 1}, {0, -16, 1}, {10, -12, 1}, {0, -6, 0.85f}}) {     // a small raise, a big one, a raise to one side, a nod back (the face is shorter by 15%)
+            int[] row = new int[w * h]; java.util.Arrays.fill(row, 0xff202020);
+            for (int dx = 0; dx < 7; dx++) for (int yy = 0; yy < 3; yy++) for (int xx = 0; xx < 3; xx++) row[(30 + yy) * w + 56 + dx * 8 + xx] = 0xffffffff;
+            float[] face1 = face0.clone(); for (int i = 0; i < 30; i++) { face1[2 * i] += mv[0]; face1[2 * i + 1] = 70 + (face0[2 * i + 1] - 70) * mv[2] + mv[1]; }
+            int[] raised = PuppetDraw.warp(row, w, h, face0, null, face1, null);
+            double lo = 1e9, hi = -1e9, sumdy = 0; int found = 0;
+            for (int dx = 0; dx < 7; dx++) {
+                double rsy = 0, rsn = 0;
+                for (int yy = 0; yy < h; yy++) for (int xx = 56 + dx * 8 - 3 + (int) mv[0]; xx < 56 + dx * 8 + 6 + (int) mv[0]; xx++) if (xx >= 0 && xx < w && (raised[yy * w + xx] & 255) > 200) { rsy += yy; rsn++; }
+                if (rsn > 0) { found++; double c = rsy / rsn - 31; lo = Math.min(lo, c); hi = Math.max(hi, c); }   // how far each dot is from where the head moved to
+            }
+            check(found == 7 && hi - lo < 2.5, "head moved by (" + (int) mv[0] + ", " + (int) mv[1] + ") and scaled " + mv[2] + ": the row across the top of the head stays straight and follows it (spread " + String.format("%.1f", hi - lo) + " pixels, " + found + " of 7 dots)");
+        }
         // short packets: times (absolute at key pictures, relative between), damage in the middle costs only the damaged packet
         boolean timesOk = true; long tPrev = 0; int idx = 0;
         for (FrvReader.Packet p : rd.packets) { if (p.type == FrvWriter.POINTS) { timesOk &= p.timeMs == idx * 500L; idx++; } }

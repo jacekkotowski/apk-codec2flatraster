@@ -60,10 +60,10 @@ final class PuppetDraw {
     // ---- the limited warp of the key picture -----------------------------------------------------------------------------------------------
 
     /** Moves the key picture the way the points moved since the key: a thin-plate spline from the current points back to the points the key had
-     *  (tools/edge/warp.py is the research version), fixed at eight points on the picture border, and then limited: the movement fades to nothing
-     *  further than R2 from the nearest current point (so the background stays still) and is never longer than MAXMOVE of the width. Objects missing
+     *  (tools/edge/warp.py is the research version), and then limited: the movement fades to nothing
+     *  further than R2 from the nearest current point (so the background stays still) and is never longer than MAXMOVE of the width (if it would be, the whole movement is scaled down together). Objects missing
      *  in the key's points or the present ones are left out. Colours are taken as they are (nearest pixel), so the flat colours stay flat. */
-    static final float R1 = 0.10f, R2 = 0.22f, MAXMOVE = 0.15f;
+    static final float R1 = 0.10f, R2 = 0.22f, MAXMOVE = 0.25f;
     static final int GRID = 4;
 
     static int[] warp(int[] base, int w, int h, float[] refFace, float[] refBody, float[] curFace, float[] curBody) {
@@ -72,7 +72,7 @@ final class PuppetDraw {
         headAnchors(cur, ref, refFace, curFace);
         if (cur.size() < 3) return base;
         float sc = w / 160f;                                            // the spline works in units of a 160 pixel wide picture
-        int[][] anchors = {{0, 0}, {w / 2, 0}, {w - 1, 0}, {0, h / 2}, {w - 1, h / 2}, {0, h - 1}, {w / 2, h - 1}, {w - 1, h - 1}};
+        int[][] anchors = {};                                           // no fixed points on the border: the spline had to fall from "moved" at the hair to "still" at the edge within a few pixels, overshot, and made a bump over the head; the fade below keeps the background still instead
         int n = cur.size() + anchors.length;
         double[] cx = new double[n], cy = new double[n], rx = new double[n], ry = new double[n];
         for (int i = 0; i < cur.size(); i++) { cx[i] = cur.get(i)[0] / sc; cy[i] = cur.get(i)[1] / sc; rx[i] = ref.get(i)[0] / sc; ry[i] = ref.get(i)[1] / sc; }
@@ -90,6 +90,7 @@ final class PuppetDraw {
         int gw = (w + GRID - 1) / GRID + 1, gh = (h + GRID - 1) / GRID + 1;
         float[] ddx = new float[gw * gh], ddy = new float[gw * gh];
         float maxMove = MAXMOVE * w;
+        double maxLen = 0;
         for (int gy = 0; gy < gh; gy++) for (int gx = 0; gx < gw; gx++) {
             double x = Math.min(w - 1, gx * GRID), y = Math.min(h - 1, gy * GRID), px = x / sc, py = y / sc;
             double sx = A[n][m] + A[n + 1][m] * px + A[n + 2][m] * py, sy = A[n][m + 1] + A[n + 1][m + 1] * px + A[n + 2][m + 1] * py;
@@ -99,9 +100,12 @@ final class PuppetDraw {
             for (float[] c : cur) near = Math.min(near, Math.hypot(c[0] - x, c[1] - y));
             double wgt = near <= R1 * w ? 1 : near >= R2 * w ? 0 : (R2 * w - near) / ((R2 - R1) * w);
             dx *= wgt; dy *= wgt;
-            double len = Math.hypot(dx, dy);
-            if (len > maxMove) { dx *= maxMove / len; dy *= maxMove / len; }
+            maxLen = Math.max(maxLen, Math.hypot(dx, dy));
             ddx[gy * gw + gx] = (float) dx; ddy[gy * gw + gx] = (float) dy;
+        }
+        if (maxLen > maxMove) {                                         // too much movement: scale the whole field, which keeps its shape (a per-pixel cap made dents)
+            float k = (float) (maxMove / maxLen);
+            for (int i = 0; i < ddx.length; i++) { ddx[i] *= k; ddy[i] *= k; }
         }
         int[] o = new int[w * h];
         for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) {
@@ -115,29 +119,33 @@ final class PuppetDraw {
         return o;
     }
 
-    /** Nothing in the face points holds the forehead and the hair, so a spline alone bends them (the owner saw the top of the face go concave). Anchors
-     *  above the face, placed in the key's face and carried to the present by the similarity (shift, turn, scale) that best maps the key's face points
-     *  onto the present ones: the top of the head then moves as one piece with the face. */
+    /** Nothing in the face points holds the forehead and the hair, so a spline alone bends them (the owner saw the top of the face go concave, and a heart
+     *  shape when he raised his head). Anchors above the face, placed in the key's face and carried to the present by the affine map (shift, turn, scale,
+     *  and the foreshortening of a nod) that best maps the key's face points onto the present ones: the top of the head then moves as one piece with the
+     *  face, and shrinks with it when the head tilts back. */
     private static void headAnchors(java.util.List<float[]> cur, java.util.List<float[]> ref, float[] rf, float[] cf) {
         if (rf == null || cf == null || rf.length != cf.length || rf.length < 44) return;
         int n = rf.length / 2;
-        double rmx = 0, rmy = 0, cmx = 0, cmy = 0;
-        for (int i = 0; i < n; i++) { rmx += rf[2 * i]; rmy += rf[2 * i + 1]; cmx += cf[2 * i]; cmy += cf[2 * i + 1]; }
-        rmx /= n; rmy /= n; cmx /= n; cmy /= n;
-        double a = 0, b = 0, d = 0;                                       // z' = c + (a + bi)(z - r), least squares
+        double sxx = 0, sxy = 0, syy = 0, sx = 0, sy = 0, bx0 = 0, bx1 = 0, bx2 = 0, by0 = 0, by1 = 0, by2 = 0;     // normal equations of c = m0 x + m1 y + m2
         for (int i = 0; i < n; i++) {
-            double zx = rf[2 * i] - rmx, zy = rf[2 * i + 1] - rmy, wx = cf[2 * i] - cmx, wy = cf[2 * i + 1] - cmy;
-            a += zx * wx + zy * wy; b += zx * wy - zy * wx; d += zx * zx + zy * zy;
+            double x = rf[2 * i], y = rf[2 * i + 1], cx = cf[2 * i], cy = cf[2 * i + 1];
+            sxx += x * x; sxy += x * y; syy += y * y; sx += x; sy += y;
+            bx0 += x * cx; bx1 += y * cx; bx2 += cx; by0 += x * cy; by1 += y * cy; by2 += cy;
         }
-        if (d < 1e-6) return;
-        a /= d; b /= d;
+        double[][] N = {{sxx, sxy, sx, bx0, by0}, {sxy, syy, sy, bx1, by1}, {sx, sy, n, bx2, by2}};
+        for (int c = 0; c < 3; c++) {                                    // Gauss elimination, two right-hand sides
+            int p = c; for (int r = c + 1; r < 3; r++) if (Math.abs(N[r][c]) > Math.abs(N[p][c])) p = r;
+            if (Math.abs(N[p][c]) < 1e-9) return;
+            double[] t = N[c]; N[c] = N[p]; N[p] = t;
+            for (int r = 0; r < 3; r++) if (r != c) { double f = N[r][c] / N[c][c]; for (int k = c; k < 5; k++) N[r][k] -= f * N[c][k]; }
+        }
+        double[] mx = {N[0][3] / N[0][0], N[1][3] / N[1][1], N[2][3] / N[2][2]}, my = {N[0][4] / N[0][0], N[1][4] / N[1][1], N[2][4] / N[2][2]};
         double bx = (rf[16] + rf[18] + rf[20] + rf[22]) / 4, by = (rf[17] + rf[19] + rf[21] + rf[23]) / 4;     // between the brows (subset points 8 to 11)
         double ux = bx - rf[38], uy = by - rf[39];                       // from the chin (19) up to the brows
         double[][] v = {{bx + 0.5 * ux, by + 0.5 * uy}, {bx + 1.1 * ux, by + 1.1 * uy},
                 {rf[40] + 0.5 * ux, rf[41] + 0.5 * uy}, {rf[42] + 0.5 * ux, rf[43] + 0.5 * uy}};              // and above the two sides of the face (20, 21)
         for (double[] p : v) {
-            double zx = p[0] - rmx, zy = p[1] - rmy;
-            cur.add(new float[]{(float) (cmx + a * zx - b * zy), (float) (cmy + b * zx + a * zy)});
+            cur.add(new float[]{(float) (mx[0] * p[0] + mx[1] * p[1] + mx[2]), (float) (my[0] * p[0] + my[1] * p[1] + my[2])});
             ref.add(new float[]{(float) p[0], (float) p[1]});
         }
     }
