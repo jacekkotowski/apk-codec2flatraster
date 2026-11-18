@@ -24,10 +24,20 @@ Where bytes go: background and face only in key pictures; anything that moves be
 7. **[DONE in 0.29]** **Smoothing between pictures** on playback (interpolate the points to 10 to 15 frames a second from 2 to 4 recorded): free in bytes; needs the player to look ahead one picture (it has the file).
 8. **Radio**: sending the `.frv` over the recorder's modem (`PLAN-radio.md`, `Fountain`, `RadioLink`), SAVE MP4 for Exact and Puppet files, both not done. The owner's size target: about 7 kB for 30 s with voice (DATAC1 in about 2 minutes); a recording of 25 s was 9.1 kB with keys every 5 s.
 
+### 2a. Added by the owner at the end of the week (2026-11-18): background as "ink and watercolour"
+
+The owner liked the earlier **raster edge + solid fill** drawing (`tools/edge/keypic.py`, the edge-drawing research of `PLAN-edge.md`) for the **background**: thin dark ink lines for the strong edges over soft flat colour washes, instead of (or on top of) the coarse colour blocks. It would make a forest, a spaceship or a room recognisable by its shapes, and it is a drawing look, which fits the puppet. What the research already has, to start from:
+- `keypic.make_maps(rgb, size, cmap_size, k)`: bilateral filter + Canny + thinning to a one-pixel edge map, plus a posterized colour map (median cut); `keypic.render_key`: the receiver's drawing (colours enlarged by joint bilateral upsampling guided by the edges so colours do not bleed across a line, edges drawn dark). Python only.
+- Sizes measured (made-up scene, 160 x 120 edge map, 32 x 24 colour map, 16 colours): edge map 181 B, colour map 109 B, palette 48 B, total about 350 B; **on real cluttered scenes the edge map was about 1 kB** and a whole key picture 1.3 kB (the edges of a busy ceiling and blinds cost most). So the lever is **fewer, longer, stronger edges**: higher Canny thresholds, drop edge fragments shorter than about 8 pixels, only outside the person's mask (the cut-out already knows it), maybe 80 x 60 or 120 x 90 for the edge map. Target to test: ink + wash under about 400 to 500 bytes for a real room; compare against the coarse blocks (about 100 to 200 bytes) by looking at both for the same scene.
+- Coding: **no new coder is needed**: `jni/flatcode.c` codes any map with up to 32 colours, so the edge map goes through it as a 2-colour map (what `keypic.py` does in Python with `flatcoder._pixels`, `k = 2`); the colour wash is the existing coarse block map or a smaller one (24 x 18).
+- Player: draw the washes smooth (the app's `Flat.upscale` already enlarges flat colours with smooth borders) and the ink as thin, semi-transparent, contrast-adaptive lines like the puppet lines (`PuppetDraw`). The person stays the cut-out, warped by the points.
+- Free animation between keys: the edges can shift with the camera shift (idea 1, done) and cross-fade between keys (idea 2, done).
+- Do it as a setting ("Background: Colour blocks / Ink and watercolour") after measuring, so the owner can compare on the phone.
+
 ## 3. Open questions for the owner
 
 - Do the lips read now (0.26)? Is the top of the head fixed (0.27)? Are the thin lines readable (0.28)?
-- Which idea first? (Suggested order: 1, 2, 7, then measure 3.)
+- Which idea first now that 1, 2 and 7 are done? (Suggested: ink and watercolour background 2a, measured against the coarse blocks; then the face patch 6; vector shapes 3 only if 2a is not enough.)
 - Is "Mouth and eyes" the right default for the lines?
 - Voice is now the largest part of a recording (4.3 of 9.1 kB): lower DRED level and "Skip silence" are the levers; test by ear.
 
