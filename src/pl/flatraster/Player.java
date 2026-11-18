@@ -55,7 +55,7 @@ final class Player {
     private void play(File file, View view) throws Exception {
         FrvReader r = new FrvReader(file);
         durationMs = r.durationMs();
-        MediaCodec dec = null; Thread audio = null; Exact exact = null; int[] exactPx = null; Points pts = null; boolean puppetBase = false;
+        MediaCodec dec = null; Thread audio = null; Exact exact = null; int[] exactPx = null; Points pts = null; boolean puppetBase = false; float[] refFace = null, refBody = null;
         try {
             boolean hasVideo = false, hasAudio = false;
             for (FrvReader.Packet p : r.packets) { hasVideo |= p.type == FrvWriter.KEY; hasAudio |= p.type == FrvWriter.AUDIO; }
@@ -88,11 +88,16 @@ final class Player {
                 if (!running) return;
                 if (p.type == FrvWriter.AUDIO) continue;
                 if (pts != null && (p.type == FrvWriter.KEY || p.type == FrvWriter.POINTS)) {   // the puppet stream
-                    if (p.type == FrvWriter.KEY) { if (exact.decode(FrvWriter.KEY, p.data, exactPx)) { gotKey = puppetBase = true; pts.reset(); } }
+                    if (p.type == FrvWriter.KEY) { if (exact.decode(FrvWriter.KEY, p.data, exactPx)) { gotKey = puppetBase = true; pts.reset(); refFace = refBody = null; } }
                     else if (puppetBase) {
                         int[] present = new int[PuppetDraw.SIZES.length], units = new int[pts.points * 2];
-                        if (pts.decode(p.data, present, units)) view.picture(PuppetDraw.draw(exactPx, r.width, r.height, PuppetDraw.unitsToPixels(units, 0, PuppetDraw.SIZES[0], present[0] != 0, r.width),
-                                PuppetDraw.unitsToPixels(units, present[0] != 0 ? PuppetDraw.SIZES[0] : 0, PuppetDraw.SIZES[1], present[1] != 0, r.width)), r.width, r.height, 0);
+                        if (pts.decode(p.data, present, units)) {
+                            float[] face = PuppetDraw.unitsToPixels(units, 0, PuppetDraw.SIZES[0], present[0] != 0, r.width),
+                                    body = PuppetDraw.unitsToPixels(units, present[0] != 0 ? PuppetDraw.SIZES[0] : 0, PuppetDraw.SIZES[1], present[1] != 0, r.width);
+                            if (refFace == null) refFace = face;          // the points the key picture had: the first ones after it, per object
+                            if (refBody == null) refBody = body;
+                            view.picture(PuppetDraw.draw(PuppetDraw.warp(exactPx, r.width, r.height, refFace, refBody, face, body), r.width, r.height, face, body), r.width, r.height, 0);
+                        }
                     }
                 } else if ((p.type == FrvWriter.KEY || p.type == FrvWriter.DELTA) && exact != null) {
                     if (p.type == FrvWriter.KEY) gotKey = true;

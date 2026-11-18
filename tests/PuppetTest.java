@@ -80,6 +80,22 @@ public class PuppetTest {
         check(got && person, "cut-out: the person's pixels are exactly the filter's");
         check(blocks, "cut-out: every 8 x 8 block of background is one colour");
         check(got && cut.data.length < plain.data.length, "cut-out key picture is smaller (" + (cut == null ? -1 : cut.data.length) + " against " + plain.data.length + " bytes)");
+        // the limited warp: a dot at the face moves with the points, a dot far away stays, no movement leaves the picture as it was
+        int[] key = new int[w * h]; java.util.Arrays.fill(key, 0xff202020);
+        for (int yy = 0; yy < 5; yy++) for (int xx = 0; xx < 5; xx++) { key[(48 + yy) * w + 78 + xx] = 0xffffffff; key[(100 + yy) * w + 8 + xx] = 0xffffffff; }
+        float[] f0 = new float[44]; for (int i = 0; i < 22; i++) { f0[2 * i] = 70 + 3 * (i % 6); f0[2 * i + 1] = 40 + 3 * (i / 6); }
+        float[] f1 = f0.clone(); for (int i = 0; i < 22; i++) f1[2 * i] += 6;
+        int[] same = PuppetDraw.warp(key, w, h, f0, null, f0, null);
+        check(java.util.Arrays.equals(same, key), "warp: no movement leaves the picture as it was");
+        int[] moved = PuppetDraw.warp(key, w, h, f0, null, f1, null);
+        double sx = 0, sn = 0, bx = 0, bn = 0;
+        for (int yy = 0; yy < h; yy++) for (int xx = 0; xx < w; xx++) if ((moved[yy * w + xx] & 255) > 200) { if (xx > 40) { sx += xx; sn++; } else { bx += xx; bn++; } }
+        check(sn > 10 && Math.abs(sx / sn - (80 + 6)) < 2.5, "warp: the dot at the face moved with the points (" + (sn > 0 ? String.format("%.1f", sx / sn) : "lost") + " against 86)");
+        check(bn > 10 && Math.abs(bx / bn - 10) < 0.6, "warp: a dot far from the person stays where it was");
+        float[] f2 = f0.clone(); for (int i = 0; i < 22; i++) f2[2 * i] += 80;
+        int[] far = PuppetDraw.warp(key, w, h, f0, null, f2, null); double fx = 0, fn = 0;
+        for (int yy = 0; yy < h; yy++) for (int xx = 0; xx < w; xx++) if ((far[yy * w + xx] & 255) > 200 && xx > 40) { fx += xx; fn++; }
+        check(fn == 0 || Math.abs(fx / fn - 80) < 25, "warp: a huge movement is limited, not followed all the way");
         // short packets: times (absolute at key pictures, relative between), damage in the middle costs only the damaged packet
         boolean timesOk = true; long tPrev = 0; int idx = 0;
         for (FrvReader.Packet p : rd.packets) { if (p.type == FrvWriter.POINTS) { timesOk &= p.timeMs == idx * 500L; idx++; } }
